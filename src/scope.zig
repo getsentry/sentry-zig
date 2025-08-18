@@ -1,8 +1,8 @@
 const std = @import("std");
-const User = @import("types.zig").User;
-const Breadcrumb = @import("types.zig").Breadcrumb;
-const BreadcrumbType = @import("types.zig").BreadcrumbType;
-const Level = @import("types.zig").Level;
+const User = @import("Types.zig").User;
+const Breadcrumb = @import("Types.zig").Breadcrumb;
+const BreadcrumbType = @import("Types.zig").BreadcrumbType;
+const Level = @import("Types.zig").Level;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -78,53 +78,53 @@ pub const Scope = struct {
     }
 
     /// Fork a scope
-    pub fn fork(self: *const Scope, allocator: Allocator) !Scope {
-        var new_scope = Scope.init(allocator);
+    pub fn fork(self: *const Scope) !Scope {
+        var new_scope = Scope.init(self.allocator);
 
         // Copy level
         new_scope.level = self.level;
 
         var tag_iterator = self.tags.iterator();
         while (tag_iterator.next()) |entry| {
-            const key = try allocator.dupe(u8, entry.key_ptr.*);
-            const value = try allocator.dupe(u8, entry.value_ptr.*);
+            const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            const value = try self.allocator.dupe(u8, entry.value_ptr.*);
             try new_scope.tags.put(key, value);
         }
 
         if (self.user) |user| {
             new_scope.user = User{
-                .id = if (user.id) |id| try allocator.dupe(u8, id) else null,
-                .username = if (user.username) |username| try allocator.dupe(u8, username) else null,
-                .email = if (user.email) |email| try allocator.dupe(u8, email) else null,
-                .name = if (user.name) |name| try allocator.dupe(u8, name) else null,
-                .ip_address = if (user.ip_address) |ip| try allocator.dupe(u8, ip) else null,
+                .id = if (user.id) |id| try self.allocator.dupe(u8, id) else null,
+                .username = if (user.username) |username| try self.allocator.dupe(u8, username) else null,
+                .email = if (user.email) |email| try self.allocator.dupe(u8, email) else null,
+                .name = if (user.name) |name| try self.allocator.dupe(u8, name) else null,
+                .ip_address = if (user.ip_address) |ip| try self.allocator.dupe(u8, ip) else null,
             };
         }
 
         if (self.fingerprint) |fp| {
-            new_scope.fingerprint = ArrayList([]const u8).init(allocator);
+            new_scope.fingerprint = ArrayList([]const u8).init(self.allocator);
             for (fp.items) |item| {
-                const copied_item = try allocator.dupe(u8, item);
+                const copied_item = try self.allocator.dupe(u8, item);
                 try new_scope.fingerprint.?.append(copied_item);
             }
         }
 
         for (self.breadcrumbs.items) |crumb| {
             var new_crumb = Breadcrumb{
-                .message = try allocator.dupe(u8, crumb.message),
+                .message = try self.allocator.dupe(u8, crumb.message),
                 .type = crumb.type,
                 .level = crumb.level,
-                .category = if (crumb.category) |cat| try allocator.dupe(u8, cat) else null,
+                .category = if (crumb.category) |cat| try self.allocator.dupe(u8, cat) else null,
                 .timestamp = crumb.timestamp,
                 .data = null,
             };
 
             if (crumb.data) |data| {
-                new_crumb.data = std.StringHashMap([]const u8).init(allocator);
+                new_crumb.data = std.StringHashMap([]const u8).init(self.allocator);
                 var data_iterator = data.iterator();
                 while (data_iterator.next()) |entry| {
-                    const key = try allocator.dupe(u8, entry.key_ptr.*);
-                    const value = try allocator.dupe(u8, entry.value_ptr.*);
+                    const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+                    const value = try self.allocator.dupe(u8, entry.value_ptr.*);
                     try new_crumb.data.?.put(key, value);
                 }
             }
@@ -135,13 +135,13 @@ pub const Scope = struct {
         // Copy contexts
         var context_iterator = self.contexts.iterator();
         while (context_iterator.next()) |entry| {
-            const context_key = try allocator.dupe(u8, entry.key_ptr.*);
-            var new_context = std.StringHashMap([]const u8).init(allocator);
+            const context_key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            var new_context = std.StringHashMap([]const u8).init(self.allocator);
 
             var inner_iterator = entry.value_ptr.iterator();
             while (inner_iterator.next()) |inner_entry| {
-                const key = try allocator.dupe(u8, inner_entry.key_ptr.*);
-                const value = try allocator.dupe(u8, inner_entry.value_ptr.*);
+                const key = try self.allocator.dupe(u8, inner_entry.key_ptr.*);
+                const value = try self.allocator.dupe(u8, inner_entry.value_ptr.*);
                 try new_context.put(key, value);
             }
 
@@ -203,13 +203,17 @@ pub const Scope = struct {
     /// Set context data
     pub fn setContext(self: *Scope, key: []const u8, context_data: std.StringHashMap([]const u8)) !void {
         const owned_key = try self.allocator.dupe(u8, key);
+        errdefer self.allocator.free(owned_key);
 
-        if (self.contexts.get(key)) |old_context| {
-            var iterator = old_context.iterator();
+        if (self.contexts.fetchRemove(key)) |old_entry| {
+            self.allocator.free(old_entry.key);
+            var old_value = old_entry.value;
+            var iterator = old_value.iterator();
             while (iterator.next()) |entry| {
                 self.allocator.free(entry.key_ptr.*);
                 self.allocator.free(entry.value_ptr.*);
             }
+            old_value.deinit();
         }
 
         try self.contexts.put(owned_key, context_data);
@@ -262,15 +266,39 @@ pub const Scope = struct {
             try self.addBreadcrumb(cloned_crumb);
         }
     }
+};
+
+// Global scope (not thread-local, singleton)
+var global_scope: ?*Scope = null;
+var global_scope_mutex = Mutex{};
+
+// Thread-local scopes
+threadlocal var thread_isolation_scope: ?*Scope = null;
+threadlocal var thread_current_scope_stack: ?*ArrayList(*Scope) = null;
+
+/// Scope manager for handling the three scope types (internal implementation)
+const ScopeManager = struct {
+    allocator: Allocator,
+
+    fn init(allocator: Allocator) ScopeManager {
+        return .{
+            .allocator = allocator,
+        };
+    }
+
+    fn deinit(self: *ScopeManager) void {
+        _ = self;
+        // Cleanup is handled by individual scopes
+    }
 
     /// Get the global scope
-    pub fn getGlobalScope(allocator: Allocator) !*Scope {
+    fn getGlobalScope(self: *ScopeManager) !*Scope {
         global_scope_mutex.lock();
         defer global_scope_mutex.unlock();
 
         if (global_scope == null) {
-            const scope = try allocator.create(Scope);
-            scope.* = Scope.init(allocator);
+            const scope = try self.allocator.create(Scope);
+            scope.* = Scope.init(self.allocator);
             global_scope = scope;
         }
 
@@ -278,77 +306,182 @@ pub const Scope = struct {
     }
 
     /// Get the current thread's isolation scope
-    pub fn getIsolationScope(allocator: Allocator) !*Scope {
+    fn getIsolationScope(self: *ScopeManager) !*Scope {
         if (thread_isolation_scope == null) {
-            // Create isolation scope by forking global scope
-            const global = try Scope.getGlobalScope(allocator);
-            const scope = try allocator.create(Scope);
-            scope.* = try global.fork(allocator);
+            // Create new isolation scope if none exists
+            const scope = try self.allocator.create(Scope);
+            scope.* = Scope.init(self.allocator);
             thread_isolation_scope = scope;
         }
 
         return thread_isolation_scope.?;
     }
 
+    /// Get the current scope stack for this thread
+    fn getCurrentScopeStack(self: *ScopeManager) !*ArrayList(*Scope) {
+        if (thread_current_scope_stack == null) {
+            const stack = try self.allocator.create(ArrayList(*Scope));
+            stack.* = ArrayList(*Scope).init(self.allocator);
+            thread_current_scope_stack = stack;
+        }
+        return thread_current_scope_stack.?;
+    }
+
     /// Get the current thread's current scope
-    pub fn getCurrentScope(allocator: Allocator) !*Scope {
-        if (thread_current_scope == null) {
-            const scope = try allocator.create(Scope);
-            scope.* = Scope.init(allocator);
-            thread_current_scope = scope;
+    fn getCurrentScope(self: *ScopeManager) !*Scope {
+        const stack = try self.getCurrentScopeStack();
+        if (stack.items.len > 0) {
+            return stack.items[stack.items.len - 1];
         }
 
-        return thread_current_scope.?;
+        // Return isolation scope if no current scope
+        return self.getIsolationScope();
     }
 
-    /// Set a new isolation scope (replacing the current one)
-    pub fn setIsolationScope(allocator: Allocator, new_scope: *Scope) void {
-        if (thread_isolation_scope) |old_scope| {
-            old_scope.deinit();
-            allocator.destroy(old_scope);
+    /// Execute a callback with a new current scope
+    fn withScope(self: *ScopeManager, callback: anytype) !void {
+        const current = try self.getCurrentScope();
+        const new_scope = try self.allocator.create(Scope);
+        new_scope.* = try current.fork();
+        defer {
+            new_scope.deinit();
+            self.allocator.destroy(new_scope);
         }
+
+        const stack = try self.getCurrentScopeStack();
+        try stack.append(new_scope);
+        defer _ = stack.pop();
+
+        try callback(new_scope);
+    }
+
+    /// Execute a callback with a new isolation scope
+    fn withIsolationScope(self: *ScopeManager, callback: anytype) !void {
+        const previous = thread_isolation_scope;
+        defer thread_isolation_scope = previous;
+
+        const new_scope = try self.allocator.create(Scope);
+        new_scope.* = Scope.init(self.allocator);
+        defer {
+            new_scope.deinit();
+            self.allocator.destroy(new_scope);
+        }
+
         thread_isolation_scope = new_scope;
+        try callback(new_scope);
     }
 
-    /// Set a new current scope (replacing the current one)
-    pub fn setCurrentScope(allocator: Allocator, new_scope: *Scope) void {
-        if (thread_current_scope) |old_scope| {
-            old_scope.deinit();
-            allocator.destroy(old_scope);
-        }
-        thread_current_scope = new_scope;
+    /// Configure the current isolation scope
+    fn configureScope(self: *ScopeManager, callback: anytype) !void {
+        const scope = try self.getIsolationScope();
+        try callback(scope);
     }
 };
 
-// Global scope (not thread-local, singleton)
-pub var global_scope: ?*Scope = null;
-pub var global_scope_mutex = Mutex{};
+// Global scope manager instance
+var g_scope_manager: ?ScopeManager = null;
 
-// Thread-local scopes
-pub threadlocal var thread_isolation_scope: ?*Scope = null;
-pub threadlocal var thread_current_scope: ?*Scope = null;
+/// Initialize the global scope manager
+pub fn initScopeManager(allocator: Allocator) !void {
+    g_scope_manager = ScopeManager.init(allocator);
+}
+
+/// Get the global scope
+pub fn getGlobalScope() !*Scope {
+    if (g_scope_manager) |*manager| {
+        return manager.getGlobalScope();
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+/// Get the isolation scope
+pub fn getIsolationScope() !*Scope {
+    if (g_scope_manager) |*manager| {
+        return manager.getIsolationScope();
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+/// Get the current scope
+pub fn getCurrentScope() !*Scope {
+    if (g_scope_manager) |*manager| {
+        return manager.getCurrentScope();
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+/// Execute a callback with a new current scope
+pub fn withScope(callback: anytype) !void {
+    if (g_scope_manager) |*manager| {
+        return manager.withScope(callback);
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+/// Execute a callback with a new isolation scope
+pub fn withIsolationScope(callback: anytype) !void {
+    if (g_scope_manager) |*manager| {
+        return manager.withIsolationScope(callback);
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+/// Configure the current isolation scope
+pub fn configureScope(callback: anytype) !void {
+    if (g_scope_manager) |*manager| {
+        return manager.configureScope(callback);
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
+// Convenience functions that write to isolation scope
+pub fn setTag(key: []const u8, value: []const u8) !void {
+    const scope = try getIsolationScope();
+    try scope.setTag(key, value);
+}
+
+pub fn setUser(user: User) !void {
+    const scope = try getIsolationScope();
+    scope.setUser(user);
+}
+
+pub fn setLevel(level: Level) !void {
+    const scope = try getIsolationScope();
+    scope.level = level;
+}
+
+pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
+    const scope = try getIsolationScope();
+    try scope.addBreadcrumb(breadcrumb);
+}
 
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
 
-    if (global_scope) |global| {
-        global.deinit();
-        allocator.destroy(global);
+    if (global_scope) |scope| {
+        scope.deinit();
+        allocator.destroy(scope);
         global_scope = null;
     }
 
-    if (thread_isolation_scope) |isolation| {
-        isolation.deinit();
-        allocator.destroy(isolation);
+    if (thread_isolation_scope) |scope| {
+        scope.deinit();
+        allocator.destroy(scope);
         thread_isolation_scope = null;
     }
 
-    if (thread_current_scope) |current| {
-        current.deinit();
-        allocator.destroy(current);
-        thread_current_scope = null;
+    if (thread_current_scope_stack) |stack| {
+        for (stack.items) |scope| {
+            scope.deinit();
+            allocator.destroy(scope);
+        }
+        stack.deinit();
+        allocator.destroy(stack);
+        thread_current_scope_stack = null;
     }
+
+    g_scope_manager = null;
 }
 
 test "Scope - basic initialization and cleanup" {
@@ -547,7 +680,7 @@ test "Scope - fork functionality" {
     try original_scope.addBreadcrumb(breadcrumb);
 
     // Fork the scope
-    var forked_scope = try original_scope.fork(allocator);
+    var forked_scope = try original_scope.fork();
     defer forked_scope.deinit();
 
     // Test that forked scope has the same data
@@ -623,7 +756,7 @@ test "Scope - merge functionality" {
     try testing.expectEqualStrings("Source breadcrumb", target_scope.breadcrumbs.items[0].message);
 }
 
-test "Scope - static scope method functionality" {
+test "Scope - scope manager functionality" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -631,17 +764,54 @@ test "Scope - static scope method functionality" {
     resetAllScopeState(allocator);
     defer resetAllScopeState(allocator);
 
-    _ = try Scope.getGlobalScope(allocator);
-    _ = try Scope.getIsolationScope(allocator);
-    _ = try Scope.getCurrentScope(allocator);
+    // Initialize scope manager
+    try initScopeManager(allocator);
 
-    const new_current = try allocator.create(Scope);
-    new_current.* = Scope.init(allocator);
-    try new_current.setTag("test", "current");
-    Scope.setCurrentScope(allocator, new_current);
+    // Test getting scopes
+    const global = try getGlobalScope();
+    const isolation = try getIsolationScope();
+    const current = try getCurrentScope();
 
-    const current = try Scope.getCurrentScope(allocator);
-    try testing.expectEqualStrings("current", current.tags.get("test").?);
+    // Test that current scope is initially the same as isolation scope
+    try testing.expect(current == isolation);
+
+    // Test setting tags on different scopes
+    try global.setTag("global_tag", "global_value");
+    try isolation.setTag("isolation_tag", "isolation_value");
+
+    // Test withScope
+    try withScope(struct {
+        fn callback(scope: *Scope) !void {
+            try scope.setTag("current_tag", "current_value");
+
+            // Verify we can see isolation tags but not modify them
+            try testing.expect(scope.tags.get("current_tag") != null);
+            try testing.expectEqualStrings("current_value", scope.tags.get("current_tag").?);
+        }
+    }.callback);
+
+    // Verify tag is not present outside withScope
+    const after_current = try getCurrentScope();
+    try testing.expect(after_current.tags.get("current_tag") == null);
+
+    // Test convenience functions
+    try setTag("convenience_tag", "convenience_value");
+    const user = User{
+        .id = try allocator.dupe(u8, "convenience_user"),
+        .username = null,
+        .email = null,
+        .name = null,
+        .ip_address = null,
+    };
+    try setUser(user);
+    try setLevel(Level.warning);
+
+    // Verify they wrote to isolation scope
+    const iso = try getIsolationScope();
+    try testing.expectEqualStrings("convenience_value", iso.tags.get("convenience_tag").?);
+    try testing.expect(iso.user != null);
+    try testing.expectEqualStrings("convenience_user", iso.user.?.id.?);
+    try testing.expect(iso.level == Level.warning);
 }
 
 test "Scope - level management" {
@@ -697,7 +867,7 @@ test "Scope - empty scope operations" {
     empty_scope.removeTags();
     empty_scope.clearBreadcrumbs();
 
-    var forked = try empty_scope.fork(allocator);
+    var forked = try empty_scope.fork();
     defer forked.deinit();
 
     try testing.expect(forked.tags.count() == 0);
@@ -780,7 +950,7 @@ test "Scope - complex fork with all data types" {
     try context.put(try allocator.dupe(u8, "platform"), try allocator.dupe(u8, "linux"));
     try original.setContext("os", context);
 
-    var forked = try original.fork(allocator);
+    var forked = try original.fork();
     defer forked.deinit();
 
     try testing.expect(forked.level == Level.warning);
@@ -817,15 +987,11 @@ const ThreadTestContext = struct {
     results: []bool,
 
     fn threadFunction(context: ThreadTestContext) void {
-        defer {
-            if (thread_current_scope) |current| {
-                current.deinit();
-                context.allocator.destroy(current);
-                thread_current_scope = null;
-            }
-        }
+        // Create a local scope manager for this thread
+        var manager = ScopeManager.init(context.allocator);
 
-        const current_scope = Scope.getCurrentScope(context.allocator) catch {
+        // Get isolation scope and set thread-specific data
+        const isolation_scope = manager.getIsolationScope() catch {
             context.results[context.thread_id] = false;
             return;
         };
@@ -842,12 +1008,12 @@ const ThreadTestContext = struct {
         };
         defer context.allocator.free(tag_value);
 
-        current_scope.setTag(tag_key, tag_value) catch {
+        isolation_scope.setTag(tag_key, tag_value) catch {
             context.results[context.thread_id] = false;
             return;
         };
 
-        const retrieved = current_scope.tags.get(tag_key) orelse {
+        const retrieved = isolation_scope.tags.get(tag_key) orelse {
             context.results[context.thread_id] = false;
             return;
         };
@@ -858,6 +1024,22 @@ const ThreadTestContext = struct {
         }
 
         context.results[context.thread_id] = true;
+
+        // Clean up thread-local state
+        if (thread_isolation_scope) |scope| {
+            scope.deinit();
+            context.allocator.destroy(scope);
+            thread_isolation_scope = null;
+        }
+        if (thread_current_scope_stack) |stack| {
+            for (stack.items) |scope| {
+                scope.deinit();
+                context.allocator.destroy(scope);
+            }
+            stack.deinit();
+            context.allocator.destroy(stack);
+            thread_current_scope_stack = null;
+        }
     }
 };
 
