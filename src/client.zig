@@ -28,6 +28,17 @@ pub const SentryOptions = struct {
 };
 
 //DUMMY STRUCTURES
+pub const SdkInfo = struct {
+    name: []const u8,
+    version: []const u8,
+    packages: ?[]const SdkPackage = null,
+};
+
+pub const SdkPackage = struct {
+    name: []const u8,
+    version: []const u8,
+};
+
 pub const Event = struct {
     event_id: ?[32]u8 = null,
 
@@ -46,6 +57,11 @@ pub const Event = struct {
     user: ?User = null,
 
     tags: ?std.StringHashMap([]const u8) = null,
+
+    // SDK and context fields
+    sdk: ?SdkInfo = null,
+    environment: ?[]const u8 = null,
+    release: ?[]const u8 = null,
 };
 
 /// Exception data structure
@@ -146,7 +162,7 @@ pub const SentryClient = struct {
     }
 
     /// Prepare an event by adding client metadata
-    fn prepareEvent(_: *SentryClient, event: Event) !Event {
+    fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
         if (prepared.event_id == null) {
@@ -157,10 +173,28 @@ pub const SentryClient = struct {
             prepared.timestamp = std.time.timestamp();
         }
 
+        // Add SDK info
+        if (prepared.sdk == null) {
+            prepared.sdk = .{
+                .name = "sentry.zig",
+                .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
+                .packages = &.{
+                    .{ .name = "sentry-zig", .version = "0.1.0" },
+                },
+            };
+        }
+
+        // Add environment from options
+        if (prepared.environment == null and self.options.environment != null) {
+            prepared.environment = self.options.environment;
+        }
+
+        // Add release from options
+        if (prepared.release == null and self.options.release != null) {
+            prepared.release = self.options.release;
+        }
+
         // TODO:
-        // - Add SDK info
-        // - Add environment from options
-        // - Add release from options
         // - Apply event processors
         // - Add contextual data
 
