@@ -174,13 +174,33 @@ pub const SentryClient = struct {
     }
 };
 
+// Thread-local PRNG for event ID generation with counter for uniqueness
+threadlocal var event_id_prng: ?Random.DefaultPrng = null;
+threadlocal var event_id_counter: u64 = 0;
+
 /// Generate a unique event ID (UUID v4 compatible)
 fn generateEventId() [32]u8 {
+    // Initialize PRNG if not already done
+    if (event_id_prng == null) {
+        // Combine multiple sources for better seed entropy
+        var seed: u64 = 0;
+        seed ^= @as(u64, @intCast(std.time.nanoTimestamp()));
+        seed ^= @as(u64, @intFromPtr(&event_id_counter));
+        seed ^= std.Thread.getCurrentId();
+        event_id_prng = Random.DefaultPrng.init(seed);
+    }
+
+    // Increment counter for additional uniqueness
+    event_id_counter +%= 1;
+
     // Generate 16 random bytes (128 bits) for UUID v4
     var uuid_bytes: [16]u8 = undefined;
-    var prng = Random.DefaultPrng.init(@intCast(std.time.timestamp()));
-    const random = prng.random();
+    const random = event_id_prng.?.random();
     random.bytes(&uuid_bytes);
+
+    // Mix in the counter to ensure uniqueness even with same seed
+    uuid_bytes[0] ^= @as(u8, @truncate(event_id_counter));
+    uuid_bytes[1] ^= @as(u8, @truncate(event_id_counter >> 8));
 
     // Set version (4) and variant bits according to UUID v4 spec
     uuid_bytes[6] = (uuid_bytes[6] & 0x0F) | 0x40; // Version 4
@@ -287,7 +307,14 @@ test "capture exception" {
 test "event ID generation is UUID v4 compatible" {
     // Generate several IDs to ensure they're unique and properly formatted
     var seen_ids = std.hash_map.StringHashMap(void).init(std.testing.allocator);
-    defer seen_ids.deinit();
+    defer {
+        // Free all the allocated strings
+        var iter = seen_ids.iterator();
+        while (iter.next()) |entry| {
+            std.testing.allocator.free(entry.key_ptr.*);
+        }
+        seen_ids.deinit();
+    }
 
     var i: usize = 0;
     while (i < 10) : (i += 1) {
@@ -303,7 +330,6 @@ test "event ID generation is UUID v4 compatible" {
 
         // Check uniqueness
         const id_string = try std.testing.allocator.dupe(u8, &id);
-        defer std.testing.allocator.free(id_string);
         try std.testing.expect(!seen_ids.contains(id_string));
         try seen_ids.put(id_string, {});
 
