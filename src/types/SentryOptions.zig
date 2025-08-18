@@ -10,6 +10,9 @@ pub const SentryOptions = struct {
     sample_rate: f64 = 1.0,
     send_default_pii: bool = false,
 
+    /// Deinitialize the options and free allocated memory.
+    /// Note: environment and release strings are not freed by this method.
+    /// The caller is responsible for managing the lifetime of these strings (as they are not owned by the client currently).
     pub fn deinit(self: *const SentryOptions, allocator: Allocator) void {
         if (self.dsn) |*dsn| {
             dsn.deinit(allocator);
