@@ -63,6 +63,14 @@ pub const EventError = struct {
     value: ?[]const u8 = null,
     path: ?[]const u8 = null,
     details: ?[]const u8 = null,
+
+    pub fn deinit(self: *EventError, allocator: std.mem.Allocator) void {
+        allocator.free(self.type);
+        if (self.name) |name| allocator.free(name);
+        if (self.value) |value| allocator.free(value);
+        if (self.path) |path| allocator.free(path);
+        if (self.details) |details| allocator.free(details);
+    }
 };
 
 /// Exception interface
@@ -73,12 +81,36 @@ pub const Exception = struct {
     thread_id: ?u64 = null,
     stacktrace: ?StackTrace = null,
     mechanism: ?Mechanism = null,
+
+    pub fn deinit(self: *Exception, allocator: std.mem.Allocator) void {
+        if (self.type) |exception_type| allocator.free(exception_type);
+        if (self.value) |value| allocator.free(value);
+        if (self.module) |module| allocator.free(module);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.mechanism) |*mechanism| mechanism.deinit(allocator);
+    }
 };
 
 /// Stack trace interface
 pub const StackTrace = struct {
     frames: []Frame,
     registers: ?std.StringHashMap([]const u8) = null,
+
+    pub fn deinit(self: *StackTrace, allocator: std.mem.Allocator) void {
+        for (self.frames) |*frame| {
+            frame.deinit(allocator);
+        }
+        allocator.free(self.frames);
+
+        if (self.registers) |*registers| {
+            var iterator = registers.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            registers.deinit();
+        }
+    }
 };
 
 /// Stack frame
@@ -100,6 +132,44 @@ pub const Frame = struct {
     symbol: ?[]const u8 = null,
     symbol_addr: ?[]const u8 = null,
     instruction_addr: ?[]const u8 = null,
+
+    pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
+        if (self.filename) |filename| allocator.free(filename);
+        if (self.function) |function| allocator.free(function);
+        if (self.module) |module| allocator.free(module);
+        if (self.abs_path) |abs_path| allocator.free(abs_path);
+        if (self.context_line) |context_line| allocator.free(context_line);
+
+        if (self.pre_context) |pre_context| {
+            for (pre_context) |line| {
+                allocator.free(line);
+            }
+            allocator.free(pre_context);
+        }
+
+        if (self.post_context) |post_context| {
+            for (post_context) |line| {
+                allocator.free(line);
+            }
+            allocator.free(post_context);
+        }
+
+        if (self.vars) |*vars| {
+            var iterator = vars.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            vars.deinit();
+        }
+
+        if (self.package) |package| allocator.free(package);
+        if (self.platform) |platform| allocator.free(platform);
+        if (self.image_addr) |image_addr| allocator.free(image_addr);
+        if (self.symbol) |symbol| allocator.free(symbol);
+        if (self.symbol_addr) |symbol_addr| allocator.free(symbol_addr);
+        if (self.instruction_addr) |instruction_addr| allocator.free(instruction_addr);
+    }
 };
 
 /// Exception mechanism
@@ -111,6 +181,30 @@ pub const Mechanism = struct {
     synthetic: ?bool = null,
     data: ?std.StringHashMap([]const u8) = null,
     meta: ?std.StringHashMap([]const u8) = null,
+
+    pub fn deinit(self: *Mechanism, allocator: std.mem.Allocator) void {
+        allocator.free(self.type);
+        if (self.description) |description| allocator.free(description);
+        if (self.help_link) |help_link| allocator.free(help_link);
+
+        if (self.data) |*data| {
+            var iterator = data.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            data.deinit();
+        }
+
+        if (self.meta) |*meta| {
+            var iterator = meta.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            meta.deinit();
+        }
+    }
 };
 
 /// Message interface
@@ -118,11 +212,30 @@ pub const Message = struct {
     message: []const u8,
     params: ?[][]const u8 = null,
     formatted: ?[]const u8 = null,
+
+    pub fn deinit(self: *Message, allocator: std.mem.Allocator) void {
+        allocator.free(self.message);
+        if (self.formatted) |formatted| allocator.free(formatted);
+
+        if (self.params) |params| {
+            for (params) |param| {
+                allocator.free(param);
+            }
+            allocator.free(params);
+        }
+    }
 };
 
 /// Breadcrumbs interface
 pub const Breadcrumbs = struct {
     values: []Breadcrumb,
+
+    pub fn deinit(self: *Breadcrumbs, allocator: std.mem.Allocator) void {
+        for (self.values) |*breadcrumb| {
+            breadcrumb.deinit(allocator);
+        }
+        allocator.free(self.values);
+    }
 };
 
 /// Thread
@@ -134,11 +247,32 @@ pub const Thread = struct {
     main: ?bool = null,
     stacktrace: ?StackTrace = null,
     held_locks: ?std.StringHashMap([]const u8) = null,
+
+    pub fn deinit(self: *Thread, allocator: std.mem.Allocator) void {
+        if (self.name) |name| allocator.free(name);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+
+        if (self.held_locks) |*held_locks| {
+            var iterator = held_locks.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            held_locks.deinit();
+        }
+    }
 };
 
 /// Threads interface
 pub const Threads = struct {
     values: []Thread,
+
+    pub fn deinit(self: *Threads, allocator: std.mem.Allocator) void {
+        for (self.values) |*thread| {
+            thread.deinit(allocator);
+        }
+        allocator.free(self.values);
+    }
 };
 
 /// SDK interface
@@ -147,18 +281,54 @@ pub const SDK = struct {
     version: []const u8,
     integrations: ?[][]const u8 = null,
     packages: ?[]SDKPackage = null,
+
+    pub fn deinit(self: *SDK, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.version);
+
+        if (self.integrations) |integrations| {
+            for (integrations) |integration| {
+                allocator.free(integration);
+            }
+            allocator.free(integrations);
+        }
+
+        if (self.packages) |packages| {
+            for (packages) |*package| {
+                package.deinit(allocator);
+            }
+            allocator.free(packages);
+        }
+    }
 };
 
 /// SDK package
 pub const SDKPackage = struct {
     name: []const u8,
     version: []const u8,
+
+    pub fn deinit(self: *SDKPackage, allocator: std.mem.Allocator) void {
+        allocator.free(self.name);
+        allocator.free(self.version);
+    }
 };
 
 /// Debug meta interface
 pub const DebugMeta = struct {
     images: ?[]DebugImage = null,
     sdk_info: ?SDKInfo = null,
+
+    pub fn deinit(self: *DebugMeta, allocator: std.mem.Allocator) void {
+        if (self.images) |images| {
+            for (images) |*image| {
+                image.deinit(allocator);
+            }
+            allocator.free(images);
+        }
+        if (self.sdk_info) |*sdk_info| {
+            sdk_info.deinit(allocator);
+        }
+    }
 };
 
 /// Debug image
@@ -173,6 +343,18 @@ pub const DebugImage = struct {
     image_vmaddr: ?[]const u8 = null,
     arch: ?[]const u8 = null,
     uuid: ?[]const u8 = null,
+
+    pub fn deinit(self: *DebugImage, allocator: std.mem.Allocator) void {
+        allocator.free(self.type);
+        if (self.image_addr) |image_addr| allocator.free(image_addr);
+        if (self.debug_id) |debug_id| allocator.free(debug_id);
+        if (self.debug_file) |debug_file| allocator.free(debug_file);
+        if (self.code_id) |code_id| allocator.free(code_id);
+        if (self.code_file) |code_file| allocator.free(code_file);
+        if (self.image_vmaddr) |image_vmaddr| allocator.free(image_vmaddr);
+        if (self.arch) |arch| allocator.free(arch);
+        if (self.uuid) |uuid| allocator.free(uuid);
+    }
 };
 
 /// SDK info
@@ -181,6 +363,10 @@ pub const SDKInfo = struct {
     version_major: ?u32 = null,
     version_minor: ?u32 = null,
     version_patchlevel: ?u32 = null,
+
+    pub fn deinit(self: *SDKInfo, allocator: std.mem.Allocator) void {
+        if (self.sdk_name) |sdk_name| allocator.free(sdk_name);
+    }
 };
 
 /// Template interface
@@ -193,6 +379,27 @@ pub const Template = struct {
     context_line: ?[]const u8 = null,
     pre_context: ?[][]const u8 = null,
     post_context: ?[][]const u8 = null,
+
+    pub fn deinit(self: *Template, allocator: std.mem.Allocator) void {
+        if (self.filename) |filename| allocator.free(filename);
+        if (self.name) |name| allocator.free(name);
+        if (self.abs_path) |abs_path| allocator.free(abs_path);
+        if (self.context_line) |context_line| allocator.free(context_line);
+
+        if (self.pre_context) |pre_context| {
+            for (pre_context) |line| {
+                allocator.free(line);
+            }
+            allocator.free(pre_context);
+        }
+
+        if (self.post_context) |post_context| {
+            for (post_context) |line| {
+                allocator.free(line);
+            }
+            allocator.free(post_context);
+        }
+    }
 };
 
 /// Main Event struct containing all required and optional attributes and interfaces
@@ -231,4 +438,72 @@ pub const Event = struct {
     // Other interfaces
     debug_meta: ?DebugMeta = null,
     sdk: ?SDK = null,
+
+    pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {
+        // Free platform if it's not the default literal
+        if (!std.mem.eql(u8, self.platform, "native")) {
+            allocator.free(self.platform);
+        }
+
+        // Free optional string attributes
+        if (self.logger) |logger| allocator.free(logger);
+        if (self.transaction) |transaction| allocator.free(transaction);
+        if (self.server_name) |server_name| allocator.free(server_name);
+        if (self.release) |release| allocator.free(release);
+        if (self.dist) |dist| allocator.free(dist);
+        if (self.environment) |environment| allocator.free(environment);
+
+        // Free tags HashMap
+        if (self.tags) |*tags| {
+            var iterator = tags.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            tags.deinit();
+        }
+
+        // Free modules HashMap
+        if (self.modules) |*modules| {
+            var iterator = modules.iterator();
+            while (iterator.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            modules.deinit();
+        }
+
+        // Free fingerprint slice
+        if (self.fingerprint) |fingerprint| {
+            for (fingerprint) |fp| {
+                allocator.free(fp);
+            }
+            allocator.free(fingerprint);
+        }
+
+        // Free errors slice
+        if (self.errors) |errors| {
+            for (errors) |*error_item| {
+                error_item.deinit(allocator);
+            }
+            allocator.free(errors);
+        }
+
+        // Free core interfaces
+        if (self.exception) |*exception| exception.deinit(allocator);
+        if (self.message) |*message| message.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.template) |*template| template.deinit(allocator);
+
+        // Free scope interfaces
+        if (self.breadcrumbs) |*breadcrumbs| breadcrumbs.deinit(allocator);
+        if (self.user) |*user| user.deinit(allocator);
+        if (self.request) |*request| request.deinit(allocator);
+        if (self.contexts) |*contexts| @import("contexts.zig").deinitContexts(contexts, allocator);
+        if (self.threads) |*threads| threads.deinit(allocator);
+
+        // Free other interfaces
+        if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);
+        if (self.sdk) |*sdk| sdk.deinit(allocator);
+    }
 };
