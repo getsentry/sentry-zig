@@ -55,4 +55,27 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+
+    // Add example executables
+    const examples_step = b.step("examples", "Build all examples");
+
+    // Basic example
+    const basic_example = b.addExecutable(.{
+        .name = "basic",
+        .root_source_file = b.path("examples/basic.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    basic_example.root_module.addImport("sentry-zig", lib_mod);
+    b.installArtifact(basic_example);
+
+    const run_basic_example = b.addRunArtifact(basic_example);
+    if (b.args) |args| {
+        run_basic_example.addArgs(args);
+    }
+
+    const run_basic_step = b.step("run-basic", "Run the basic example");
+    run_basic_step.dependOn(&run_basic_example.step);
+
+    examples_step.dependOn(&basic_example.step);
 }

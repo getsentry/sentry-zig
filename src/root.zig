@@ -1,10 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
-pub export fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+// Re-export client types and functions
+pub const SentryClient = @import("client.zig").SentryClient;
+pub const SentryOptions = @import("client.zig").SentryOptions;
+pub const Event = @import("client.zig").Event;
+pub const Exception = @import("client.zig").Exception;
+pub const User = @import("client.zig").User;
 
-test "basic add functionality" {
-    try testing.expect(add(3, 7) == 10);
+test {
+    // Reference all tests in client.zig
+    std.testing.refAllDecls(@import("client.zig"));
 }
