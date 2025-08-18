@@ -1,10 +1,10 @@
 const std = @import("std");
 const Random = std.Random;
-const Breadcrumb = @import("breadcrumb.zig").Breadcrumb;
-const User = @import("user.zig").User;
-const Level = @import("enums.zig").Level;
-const Request = @import("request.zig").Request;
-const Contexts = @import("contexts.zig").Contexts;
+const Breadcrumb = @import("Breadcrumb.zig").Breadcrumb;
+const User = @import("User.zig").User;
+const Level = @import("Level.zig").Level;
+const Request = @import("Request.zig").Request;
+const Contexts = @import("Contexts.zig").Contexts;
 
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
@@ -14,7 +14,7 @@ threadlocal var event_id_counter: u64 = 0;
 pub const EventId = struct {
     value: [32]u8,
 
-    fn new() EventId {
+    pub fn new() EventId {
         // Initialize PRNG if not already done
         if (event_id_prng == null) {
             // Combine multiple sources for better seed entropy
@@ -499,7 +499,7 @@ pub const Event = struct {
         if (self.breadcrumbs) |*breadcrumbs| breadcrumbs.deinit(allocator);
         if (self.user) |*user| user.deinit(allocator);
         if (self.request) |*request| request.deinit(allocator);
-        if (self.contexts) |*contexts| @import("contexts.zig").deinitContexts(contexts, allocator);
+        if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
         if (self.threads) |*threads| threads.deinit(allocator);
 
         // Free other interfaces

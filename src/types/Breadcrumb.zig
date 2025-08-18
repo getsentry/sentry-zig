@@ -1,12 +1,13 @@
 const std = @import("std");
-const enums = @import("enums.zig");
+const BreadcrumbType = @import("BreadcrumbType.zig").BreadcrumbType;
+const Level = @import("Level.zig").Level;
 const Allocator = std.mem.Allocator;
 
 /// Breadcrumb for tracing user actions and events
 pub const Breadcrumb = struct {
     message: []const u8,
-    type: enums.BreadcrumbType,
-    level: enums.Level,
+    type: BreadcrumbType,
+    level: Level,
     category: ?[]const u8 = null,
     timestamp: i64,
     data: ?std.StringHashMap([]const u8) = null,
