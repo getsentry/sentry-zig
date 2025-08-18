@@ -4,7 +4,7 @@ const Random = std.Random;
 
 pub const SentryOptions = struct {
     dsn: ?[]const u8 = null,
-    environment: []const u8 = "production",
+    environment: ?[]const u8 = null,
     release: ?[]const u8 = null,
     debug: bool = false,
     sample_rate: f64 = 1.0,
@@ -69,7 +69,9 @@ pub const SentryClient = struct {
             if (options.dsn) |dsn| {
                 std.log.debug("DSN: {s}", .{dsn});
             }
-            std.log.debug("Environment: {s}", .{options.environment});
+            if (options.environment) |env| {
+                std.log.debug("Environment: {s}", .{env});
+            }
             std.log.debug("Sample rate: {d}", .{options.sample_rate});
         }
 
@@ -174,6 +176,9 @@ pub const SentryClient = struct {
     }
 };
 
+// VIBE CODE WARNING
+// The following code is completely vibe coded.
+
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
 threadlocal var event_id_counter: u64 = 0;
@@ -236,7 +241,7 @@ test "basic client initialization" {
     defer client.deinit();
 
     try std.testing.expect(client.isActive());
-    try std.testing.expectEqualStrings("testing", client.options.environment);
+    try std.testing.expectEqualStrings("testing", client.options.environment.?);
     try std.testing.expectEqual(@as(f64, 0.5), client.options.sample_rate);
 }
 
@@ -252,7 +257,7 @@ test "initialization with anonymous struct" {
     defer client.deinit();
 
     try std.testing.expect(client.isActive());
-    try std.testing.expectEqualStrings("production", client.options.environment); // default
+    try std.testing.expect(client.options.environment == null); // default is null
 }
 
 test "capture message" {
