@@ -1,7 +1,7 @@
 pub const SentryItemType = enum {
     session,
     event,
-    user_repot,
+    user_report,
     attachment,
     transaction,
     profile,
