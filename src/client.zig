@@ -1,0 +1,319 @@
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const Random = std.Random;
+
+pub const SentryOptions = struct {
+    dsn: ?[]const u8 = null,
+    environment: []const u8 = "production",
+    release: ?[]const u8 = null,
+    debug: bool = false,
+    sample_rate: f32 = 1.0,
+    send_default_pii: bool = false,
+};
+
+//DUMMY STRUCTURES
+pub const Event = struct {
+    event_id: ?[32]u8 = null,
+
+    timestamp: ?i64 = null,
+
+    event_type: []const u8 = "error",
+
+    platform: []const u8 = "zig",
+
+    message: ?[]const u8 = null,
+
+    exception: ?Exception = null,
+
+    extra: ?std.json.ObjectMap = null,
+
+    user: ?User = null,
+
+    tags: ?std.StringHashMap([]const u8) = null,
+};
+
+/// Exception data structure
+pub const Exception = struct {
+    exception_type: []const u8,
+
+    value: ?[]const u8 = null,
+
+    module: ?[]const u8 = null,
+
+    stacktrace: ?[]const u8 = null,
+};
+
+/// User context information
+pub const User = struct {
+    id: ?[]const u8 = null,
+    username: ?[]const u8 = null,
+    email: ?[]const u8 = null,
+    ip_address: ?[]const u8 = null,
+};
+//END DUMMY STRUCTURES
+
+pub const SentryClient = struct {
+    options: SentryOptions,
+    active: bool,
+    allocator: Allocator,
+
+    pub fn init(allocator: Allocator, options: SentryOptions) !SentryClient {
+        const client = SentryClient{
+            .options = options,
+            .active = options.dsn != null,
+            .allocator = allocator,
+        };
+
+        if (options.debug) {
+            std.log.debug("Initializing Sentry client", .{});
+            if (options.dsn) |dsn| {
+                std.log.debug("DSN: {s}", .{dsn});
+            }
+            std.log.debug("Environment: {s}", .{options.environment});
+            std.log.debug("Sample rate: {d}", .{options.sample_rate});
+        }
+
+        return client;
+    }
+
+    pub fn isActive(self: *const SentryClient) bool {
+        return self.active;
+    }
+
+    /// Capture an event and return its ID if successful
+    pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
+        if (!self.isActive()) {
+            if (self.options.debug) {
+                std.log.debug("Client is not active (no DSN configured)", .{});
+            }
+            return null;
+        }
+
+        if (!self.shouldSample()) {
+            if (self.options.debug) {
+                std.log.debug("Event dropped due to sampling", .{});
+            }
+            return null;
+        }
+
+        const prepared_event = try self.prepareEvent(event);
+
+        if (self.options.debug) {
+            std.log.debug("Capturing event: {s}", .{prepared_event.event_type});
+            if (prepared_event.message) |msg| {
+                std.log.debug("Message: {s}", .{msg});
+            }
+        }
+
+        // TODO: Delegate to transport layer
+
+        return prepared_event.event_id;
+    }
+
+    /// Capture an exception
+    pub fn captureException(self: *SentryClient, exception: Exception) !?[32]u8 {
+        const event = Event{
+            .event_type = "error",
+            .exception = exception,
+        };
+
+        return self.captureEvent(event);
+    }
+
+    /// Capture a simple message
+    pub fn captureMessage(self: *SentryClient, message: []const u8) !?[32]u8 {
+        const event = Event{
+            .event_type = "message",
+            .message = message,
+        };
+
+        return self.captureEvent(event);
+    }
+
+    /// Prepare an event by adding client metadata
+    fn prepareEvent(_: *SentryClient, event: Event) !Event {
+        var prepared = event;
+
+        if (prepared.event_id == null) {
+            prepared.event_id = generateEventId();
+        }
+
+        if (prepared.timestamp == null) {
+            prepared.timestamp = std.time.timestamp();
+        }
+
+        // TODO:
+        // - Add SDK info
+        // - Add environment from options
+        // - Add release from options
+        // - Apply event processors
+        // - Add contextual data
+
+        return prepared;
+    }
+
+    fn shouldSample(self: *const SentryClient) bool {
+        if (self.options.sample_rate >= 1.0) {
+            return true;
+        }
+        if (self.options.sample_rate <= 0.0) {
+            return false;
+        }
+
+        // Simple random sampling
+        var prng = Random.DefaultPrng.init(@intCast(std.time.timestamp()));
+        const random = prng.random();
+        return random.float(f32) < self.options.sample_rate;
+    }
+
+    pub fn deinit(self: *SentryClient) void {
+        if (self.options.debug) {
+            std.log.debug("Shutting down Sentry client", .{});
+        }
+        // TODO: cleanup logic
+    }
+};
+
+/// Generate a unique event ID (UUID v4 compatible)
+fn generateEventId() [32]u8 {
+    // Generate 16 random bytes (128 bits) for UUID v4
+    var uuid_bytes: [16]u8 = undefined;
+    var prng = Random.DefaultPrng.init(@intCast(std.time.timestamp()));
+    const random = prng.random();
+    random.bytes(&uuid_bytes);
+
+    // Set version (4) and variant bits according to UUID v4 spec
+    uuid_bytes[6] = (uuid_bytes[6] & 0x0F) | 0x40; // Version 4
+    uuid_bytes[8] = (uuid_bytes[8] & 0x3F) | 0x80; // Variant 10
+
+    // Convert to hex string (32 characters)
+    var hex_id: [32]u8 = undefined;
+    const hex_chars = "0123456789abcdef";
+
+    for (uuid_bytes, 0..) |byte, i| {
+        hex_id[i * 2] = hex_chars[byte >> 4];
+        hex_id[i * 2 + 1] = hex_chars[byte & 0x0F];
+    }
+
+    return hex_id;
+}
+
+// Example usage
+test "basic client initialization" {
+    const allocator = std.testing.allocator;
+
+    // Option 1: Most explicit, using struct initialization
+    const options = SentryOptions{
+        .dsn = "https://key@sentry.io/project",
+        .environment = "testing",
+        .release = "1.0.0",
+        .debug = true,
+        .sample_rate = 0.5,
+        .send_default_pii = true,
+    };
+
+    var client = try SentryClient.init(allocator, options);
+    defer client.deinit();
+
+    try std.testing.expect(client.isActive());
+    try std.testing.expectEqualStrings("testing", client.options.environment);
+    try std.testing.expectEqual(@as(f32, 0.5), client.options.sample_rate);
+}
+
+test "initialization with anonymous struct" {
+    const allocator = std.testing.allocator;
+
+    // Option 2: More concise with anonymous struct literal
+    var client = try SentryClient.init(allocator, .{
+        .dsn = "https://key@sentry.io/project",
+        .send_default_pii = true,
+        // Other fields use defaults
+    });
+    defer client.deinit();
+
+    try std.testing.expect(client.isActive());
+    try std.testing.expectEqualStrings("production", client.options.environment); // default
+}
+
+test "capture message" {
+    const allocator = std.testing.allocator;
+
+    const options = SentryOptions{
+        .dsn = "https://key@sentry.io/project",
+    };
+
+    var client = try SentryClient.init(allocator, options);
+    defer client.deinit();
+
+    const event_id = try client.captureMessage("Test message");
+    try std.testing.expect(event_id != null);
+}
+
+test "inactive client returns null" {
+    const allocator = std.testing.allocator;
+
+    // No DSN provided
+    const options = SentryOptions{};
+
+    var client = try SentryClient.init(allocator, options);
+    defer client.deinit();
+
+    try std.testing.expect(!client.isActive());
+
+    const event_id = try client.captureMessage("Test message");
+    try std.testing.expect(event_id == null);
+}
+
+test "capture exception" {
+    const allocator = std.testing.allocator;
+
+    const options = SentryOptions{
+        .dsn = "https://key@sentry.io/project",
+    };
+
+    var client = try SentryClient.init(allocator, options);
+    defer client.deinit();
+
+    const exception = Exception{
+        .exception_type = "RuntimeError",
+        .value = "Something went wrong",
+        .module = "main",
+    };
+
+    const event_id = try client.captureException(exception);
+    try std.testing.expect(event_id != null);
+}
+
+test "event ID generation is UUID v4 compatible" {
+    // Generate several IDs to ensure they're unique and properly formatted
+    var seen_ids = std.hash_map.StringHashMap(void).init(std.testing.allocator);
+    defer seen_ids.deinit();
+
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        const id = generateEventId();
+
+        // Check length
+        try std.testing.expectEqual(@as(usize, 32), id.len);
+
+        // Check all characters are valid hex
+        for (id) |char| {
+            try std.testing.expect((char >= '0' and char <= '9') or (char >= 'a' and char <= 'f'));
+        }
+
+        // Check uniqueness
+        const id_string = try std.testing.allocator.dupe(u8, &id);
+        defer std.testing.allocator.free(id_string);
+        try std.testing.expect(!seen_ids.contains(id_string));
+        try seen_ids.put(id_string, {});
+
+        // Verify it's a valid UUID v4 format (version bits)
+        // In hex position 12 (byte 6), the first nibble should be 4
+        const version_nibble = if (id[12] >= 'a') id[12] - 'a' + 10 else id[12] - '0';
+        try std.testing.expectEqual(@as(u8, 4), version_nibble);
+
+        // In hex position 16 (byte 8), the first nibble should be 8, 9, a, or b
+        const variant_nibble = if (id[16] >= 'a') id[16] - 'a' + 10 else id[16] - '0';
+        try std.testing.expect(variant_nibble >= 8 and variant_nibble <= 11);
+    }
+}
