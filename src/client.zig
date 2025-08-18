@@ -106,7 +106,7 @@ pub const SentryClient = struct {
     }
 
     /// Capture an exception
-    pub fn captureException(self: *SentryClient, exception: Exception) !?[32]u8 {
+    pub fn captureError(self: *SentryClient, exception: Exception) !?[32]u8 {
         const event = Event{
             .event_type = "error",
             .exception = exception,
@@ -299,7 +299,7 @@ test "capture exception" {
         .module = "main",
     };
 
-    const event_id = try client.captureException(exception);
+    const event_id = try client.captureError(exception);
     try std.testing.expect(event_id != null);
 }
 
