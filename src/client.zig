@@ -2,113 +2,46 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const Dsn = @import("types/Dsn.zig").Dsn;
-
-pub const SentryOptions = struct {
-    dsn: ?Dsn = null,
-    environment: ?[]const u8 = null,
-    release: ?[]const u8 = null,
-    debug: bool = false,
-    sample_rate: f64 = 1.0,
-    send_default_pii: bool = false,
-
-    /// Initialize options with a DSN string
-    pub fn init(allocator: Allocator, dsn: []const u8) !SentryOptions {
-        const parsed_dsn = try Dsn.parse(allocator, dsn);
-        return SentryOptions{
-            .dsn = parsed_dsn,
-        };
-    }
-
-    /// Deinitialize the options and free allocated memory
-    pub fn deinit(self: *const SentryOptions, allocator: Allocator) void {
-        if (self.dsn) |*dsn| {
-            dsn.deinit(allocator);
-        }
-    }
-};
-
-//DUMMY STRUCTURES
-pub const SdkInfo = struct {
-    name: []const u8,
-    version: []const u8,
-    packages: ?[]const SdkPackage = null,
-};
-
-pub const SdkPackage = struct {
-    name: []const u8,
-    version: []const u8,
-};
-
-pub const Event = struct {
-    event_id: ?[32]u8 = null,
-
-    timestamp: ?i64 = null,
-
-    event_type: []const u8 = "error",
-
-    platform: []const u8 = "zig",
-
-    message: ?[]const u8 = null,
-
-    exception: ?Exception = null,
-
-    extra: ?std.json.ObjectMap = null,
-
-    user: ?User = null,
-
-    tags: ?std.StringHashMap([]const u8) = null,
-
-    // SDK and context fields
-    sdk: ?SdkInfo = null,
-    environment: ?[]const u8 = null,
-    release: ?[]const u8 = null,
-};
-
-/// Exception data structure
-pub const Exception = struct {
-    exception_type: []const u8,
-
-    value: ?[]const u8 = null,
-
-    module: ?[]const u8 = null,
-
-    stacktrace: ?[]const u8 = null,
-};
-
-/// User context information
-pub const User = struct {
-    id: ?[]const u8 = null,
-    username: ?[]const u8 = null,
-    email: ?[]const u8 = null,
-    ip_address: ?[]const u8 = null,
-};
-//END DUMMY STRUCTURES
+const Event = @import("types/Event.zig").Event;
+const EventId = @import("types/Event.zig").EventId;
+const Exception = @import("types/Event.zig").Exception;
+const SDK = @import("types/Event.zig").SDK;
+const SDKPackage = @import("types/Event.zig").SDKPackage;
+const User = @import("types/User.zig").User;
+const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
 
 pub const SentryClient = struct {
     options: SentryOptions,
     active: bool,
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator, options: SentryOptions) !SentryClient {
+    pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
+        var opts = options;
+
+        // Parse DSN if provided
+        if (dsn) |dsn_str| {
+            opts.dsn = try Dsn.parse(allocator, dsn_str);
+        }
+
         const client = SentryClient{
-            .options = options,
-            .active = options.dsn != null,
+            .options = opts,
+            .active = opts.dsn != null,
             .allocator = allocator,
         };
 
-        if (options.debug) {
+        if (opts.debug) {
             std.log.debug("Initializing Sentry client", .{});
-            if (options.dsn) |dsn| {
-                const dsn_str = try dsn.toString(allocator);
+            if (opts.dsn) |parsed_dsn| {
+                const dsn_str = try parsed_dsn.toString(allocator);
                 defer allocator.free(dsn_str);
                 std.log.debug("DSN: {s}", .{dsn_str});
-                std.log.debug("Host: {s}:{d}", .{ dsn.host, dsn.port });
-                std.log.debug("Project ID: {s}", .{dsn.project_id});
+                std.log.debug("Host: {s}:{d}", .{ parsed_dsn.host, parsed_dsn.port });
+                std.log.debug("Project ID: {s}", .{parsed_dsn.project_id});
             }
-            if (options.environment) |env| {
+            if (opts.environment) |env| {
                 std.log.debug("Environment: {s}", .{env});
             }
-            std.log.debug("Sample rate: {d}", .{options.sample_rate});
+            std.log.debug("Sample rate: {d}", .{opts.sample_rate});
         }
 
         return client;
@@ -130,21 +63,23 @@ pub const SentryClient = struct {
         const prepared_event = try self.prepareEvent(event);
 
         if (self.options.debug) {
-            std.log.debug("Capturing event: {s}", .{prepared_event.event_type});
+            std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
             if (prepared_event.message) |msg| {
-                std.log.debug("Message: {s}", .{msg});
+                std.log.debug("Message: {s}", .{msg.message});
             }
         }
 
         // TODO: Delegate to transport layer
 
-        return prepared_event.event_id;
+        return prepared_event.event_id.value;
     }
 
     /// Capture an exception
     pub fn captureError(self: *SentryClient, exception: Exception) !?[32]u8 {
         const event = Event{
-            .event_type = "error",
+            .event_id = EventId.new(),
+            .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+            .platform = "zig",
             .exception = exception,
         };
 
@@ -154,8 +89,10 @@ pub const SentryClient = struct {
     /// Capture a simple message
     pub fn captureMessage(self: *SentryClient, message: []const u8) !?[32]u8 {
         const event = Event{
-            .event_type = "message",
-            .message = message,
+            .event_id = EventId.new(),
+            .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+            .platform = "zig",
+            .message = .{ .message = message },
         };
 
         return self.captureEvent(event);
@@ -165,22 +102,18 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-        if (prepared.event_id == null) {
-            prepared.event_id = generateEventId();
-        }
-
-        if (prepared.timestamp == null) {
-            prepared.timestamp = std.time.timestamp();
-        }
-
         // Add SDK info
         if (prepared.sdk == null) {
-            prepared.sdk = .{
+            var packages = [_]SDKPackage{
+                SDKPackage{
+                    .name = "sentry-zig",
+                    .version = "0.1.0",
+                },
+            };
+            prepared.sdk = SDK{
                 .name = "sentry.zig",
                 .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
-                .packages = &.{
-                    .{ .name = "sentry-zig", .version = "0.1.0" },
-                },
+                .packages = packages[0..],
             };
         }
 
@@ -226,66 +159,20 @@ pub const SentryClient = struct {
     }
 };
 
-// VIBE CODE WARNING
-// The following code is completely vibe coded.
-
-// Thread-local PRNG for event ID generation with counter for uniqueness
-threadlocal var event_id_prng: ?Random.DefaultPrng = null;
-threadlocal var event_id_counter: u64 = 0;
-
-/// Generate a unique event ID (UUID v4 compatible)
-fn generateEventId() [32]u8 {
-    // Initialize PRNG if not already done
-    if (event_id_prng == null) {
-        // Combine multiple sources for better seed entropy
-        var seed: u64 = 0;
-        seed ^= @as(u64, @intCast(std.time.nanoTimestamp()));
-        seed ^= @as(u64, @intFromPtr(&event_id_counter));
-        seed ^= std.Thread.getCurrentId();
-        event_id_prng = Random.DefaultPrng.init(seed);
-    }
-
-    // Increment counter for additional uniqueness
-    event_id_counter +%= 1;
-
-    // Generate 16 random bytes (128 bits) for UUID v4
-    var uuid_bytes: [16]u8 = undefined;
-    const random = event_id_prng.?.random();
-    random.bytes(&uuid_bytes);
-
-    // Mix in the counter to ensure uniqueness even with same seed
-    uuid_bytes[0] ^= @as(u8, @truncate(event_id_counter));
-    uuid_bytes[1] ^= @as(u8, @truncate(event_id_counter >> 8));
-
-    // Set version (4) and variant bits according to UUID v4 spec
-    uuid_bytes[6] = (uuid_bytes[6] & 0x0F) | 0x40; // Version 4
-    uuid_bytes[8] = (uuid_bytes[8] & 0x3F) | 0x80; // Variant 10
-
-    // Convert to hex string (32 characters)
-    var hex_id: [32]u8 = undefined;
-    const hex_chars = "0123456789abcdef";
-
-    for (uuid_bytes, 0..) |byte, i| {
-        hex_id[i * 2] = hex_chars[byte >> 4];
-        hex_id[i * 2 + 1] = hex_chars[byte & 0x0F];
-    }
-
-    return hex_id;
-}
-
 // Example usage
 test "basic client initialization" {
     const allocator = std.testing.allocator;
 
-    // Initialize options with DSN string
-    var options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
-    options.environment = "testing";
-    options.release = "1.0.0";
-    options.debug = true;
-    options.sample_rate = 0.5;
-    options.send_default_pii = true;
+    // Initialize options
+    const options = SentryOptions{
+        .environment = "testing",
+        .release = "1.0.0",
+        .debug = true,
+        .sample_rate = 0.5,
+        .send_default_pii = true,
+    };
 
-    var client = try SentryClient.init(allocator, options);
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
     defer client.deinit();
 
     try std.testing.expect(client.isActive());
@@ -296,11 +183,12 @@ test "basic client initialization" {
 test "initialization with DSN string" {
     const allocator = std.testing.allocator;
 
-    // Initialize options with DSN string
-    var options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
-    options.send_default_pii = true;
+    // Initialize options
+    const options = SentryOptions{
+        .send_default_pii = true,
+    };
 
-    var client = try SentryClient.init(allocator, options);
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
     defer client.deinit();
 
     try std.testing.expect(client.isActive());
@@ -310,9 +198,9 @@ test "initialization with DSN string" {
 test "capture message" {
     const allocator = std.testing.allocator;
 
-    const options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
+    const options = SentryOptions{};
 
-    var client = try SentryClient.init(allocator, options);
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
     defer client.deinit();
 
     const event_id = try client.captureMessage("Test message");
@@ -325,7 +213,7 @@ test "inactive client returns null" {
     // No DSN provided
     const options = SentryOptions{};
 
-    var client = try SentryClient.init(allocator, options);
+    var client = try SentryClient.init(allocator, null, options);
     defer client.deinit();
 
     try std.testing.expect(!client.isActive());
@@ -337,13 +225,13 @@ test "inactive client returns null" {
 test "capture exception" {
     const allocator = std.testing.allocator;
 
-    const options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
+    const options = SentryOptions{};
 
-    var client = try SentryClient.init(allocator, options);
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
     defer client.deinit();
 
     const exception = Exception{
-        .exception_type = "RuntimeError",
+        .type = "RuntimeError",
         .value = "Something went wrong",
         .module = "main",
     };
@@ -366,7 +254,8 @@ test "event ID generation is UUID v4 compatible" {
 
     var i: usize = 0;
     while (i < 10) : (i += 1) {
-        const id = generateEventId();
+        const event_id = EventId.new();
+        const id = event_id.value;
 
         // Check length
         try std.testing.expectEqual(@as(usize, 32), id.len);
