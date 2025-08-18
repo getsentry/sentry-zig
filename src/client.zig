@@ -91,13 +91,6 @@ pub const SentryClient = struct {
             return null;
         }
 
-        if (!self.shouldSample()) {
-            if (self.options.debug) {
-                std.log.debug("Event dropped due to sampling", .{});
-            }
-            return null;
-        }
-
         const prepared_event = try self.prepareEvent(event);
 
         if (self.options.debug) {
@@ -154,23 +147,12 @@ pub const SentryClient = struct {
         return prepared;
     }
 
-    fn shouldSample(self: *const SentryClient) bool {
-        if (self.options.sample_rate >= 1.0) {
-            return true;
-        }
-        if (self.options.sample_rate <= 0.0) {
-            return false;
-        }
-
-        // Simple random sampling
-        var prng = Random.DefaultPrng.init(@intCast(std.time.timestamp()));
-        const random = prng.random();
-        return random.float(f64) < self.options.sample_rate;
-    }
-
     pub fn flush(self: *SentryClient, timeout: ?u64) void {
+        _ = self;
+        _ = timeout;
         // TODO: Implement flush logic (delegate to transport layer)
-        std.time.sleep(1000);
+        // For now, just sleep for a bit as dummy implementation
+        std.time.sleep(1_000_000_000); // 1 second
     }
 
     pub fn close(self: *SentryClient, timeout: ?u64) void {
