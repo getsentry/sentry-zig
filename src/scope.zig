@@ -148,7 +148,10 @@ pub const Scope = struct {
     /// Set a tag
     pub fn setTag(self: *Scope, key: []const u8, value: []const u8) !void {
         const owned_key = try self.allocator.dupe(u8, key);
+        errdefer self.allocator.free(owned_key);
+
         const owned_value = try self.allocator.dupe(u8, value);
+        errdefer self.allocator.free(owned_value);
 
         if (self.tags.fetchRemove(key)) |old_entry| {
             self.allocator.free(old_entry.key);
