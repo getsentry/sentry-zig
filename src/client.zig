@@ -7,7 +7,7 @@ pub const SentryOptions = struct {
     environment: []const u8 = "production",
     release: ?[]const u8 = null,
     debug: bool = false,
-    sample_rate: f32 = 1.0,
+    sample_rate: f64 = 1.0,
     send_default_pii: bool = false,
 };
 
@@ -163,7 +163,7 @@ pub const SentryClient = struct {
         // Simple random sampling
         var prng = Random.DefaultPrng.init(@intCast(std.time.timestamp()));
         const random = prng.random();
-        return random.float(f32) < self.options.sample_rate;
+        return random.float(f64) < self.options.sample_rate;
     }
 
     pub fn deinit(self: *SentryClient) void {
@@ -237,7 +237,7 @@ test "basic client initialization" {
 
     try std.testing.expect(client.isActive());
     try std.testing.expectEqualStrings("testing", client.options.environment);
-    try std.testing.expectEqual(@as(f32, 0.5), client.options.sample_rate);
+    try std.testing.expectEqual(@as(f64, 0.5), client.options.sample_rate);
 }
 
 test "initialization with anonymous struct" {
