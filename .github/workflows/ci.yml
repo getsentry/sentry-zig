@@ -1,4 +1,4 @@
-name: Test
+name: CI
 on:
   push:
     branches: [ main, master, setup-ci ]
@@ -22,39 +22,36 @@ jobs:
       uses: mlugg/setup-zig@v2
       with:
         version: ${{ matrix.zig-version }}
-    
-    - name: Build
-      run: zig build
-    
+
     - name: Run tests
       run: zig build test
 
   format-check:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
-        version: 0.14.1
-    
+        version: ${{ matrix.zig-version }}
+
     - name: Check formatting
       run: zig fmt --check src/
 
   lint:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
-        version: 0.14.1
-    
+        version: ${{ matrix.zig-version }}
+
     - name: Zig check
       run: zig build --summary all
