@@ -168,11 +168,23 @@ pub const SentryClient = struct {
         return random.float(f64) < self.options.sample_rate;
     }
 
+    pub fn flush(self: *SentryClient, timeout: ?u64) void {
+        // TODO: Implement flush logic (delegate to transport layer)
+        std.time.sleep(1000);
+    }
+
+    pub fn close(self: *SentryClient, timeout: ?u64) void {
+        // TODO: Implement close logic (delegate to transport layer)
+        self.active = false;
+        self.flush(timeout);
+    }
+
     pub fn deinit(self: *SentryClient) void {
         if (self.options.debug) {
             std.log.debug("Shutting down Sentry client", .{});
         }
         // TODO: cleanup logic
+        self.close(null);
     }
 };
 
