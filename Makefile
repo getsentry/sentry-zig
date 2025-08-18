@@ -1,5 +1,5 @@
 # Sentry Zig SDK Makefile
-.PHONY: help test build clean format check install dev
+.PHONY: help test test-quiet build clean format check install
 
 # Default target
 .DEFAULT_GOAL := help
@@ -62,11 +62,5 @@ check: ## Check code formatting and run linter
 
 install: ## Install the library (build and copy to zig-out)
 	@zig build install $(ZIG_BUILD_OPTS)
-
-release: ## Build optimized release version
-	@zig build -Doptimize=ReleaseFast
-
-debug: ## Build debug version with extra information
-	@zig build -Doptimize=Debug
 
 all: clean format check build test ## Run complete build pipeline
