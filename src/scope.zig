@@ -92,13 +92,7 @@ pub const Scope = struct {
         }
 
         if (self.user) |user| {
-            new_scope.user = User{
-                .id = if (user.id) |id| try self.allocator.dupe(u8, id) else null,
-                .username = if (user.username) |username| try self.allocator.dupe(u8, username) else null,
-                .email = if (user.email) |email| try self.allocator.dupe(u8, email) else null,
-                .name = if (user.name) |name| try self.allocator.dupe(u8, name) else null,
-                .ip_address = if (user.ip_address) |ip| try self.allocator.dupe(u8, ip) else null,
-            };
+            new_scope.user = try user.clone(self.allocator);
         }
 
         if (self.fingerprint) |fp| {
@@ -232,13 +226,7 @@ pub const Scope = struct {
 
         // Override user if other has one
         if (other.user) |user| {
-            const cloned_user = User{
-                .id = if (user.id) |id| try self.allocator.dupe(u8, id) else null,
-                .username = if (user.username) |username| try self.allocator.dupe(u8, username) else null,
-                .email = if (user.email) |email| try self.allocator.dupe(u8, email) else null,
-                .name = if (user.name) |name| try self.allocator.dupe(u8, name) else null,
-                .ip_address = if (user.ip_address) |ip| try self.allocator.dupe(u8, ip) else null,
-            };
+            const cloned_user = try user.clone(self.allocator);
             self.setUser(cloned_user);
         }
 
