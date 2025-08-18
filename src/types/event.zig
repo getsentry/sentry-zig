@@ -3,6 +3,8 @@ const Random = std.Random;
 const Breadcrumb = @import("breadcrumb.zig").Breadcrumb;
 const User = @import("user.zig").User;
 const Level = @import("enums.zig").Level;
+const Request = @import("request.zig").Request;
+const Contexts = @import("contexts.zig").Contexts;
 
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
@@ -118,17 +120,6 @@ pub const Message = struct {
     formatted: ?[]const u8 = null,
 };
 
-/// Request interface
-pub const Request = struct {
-    url: ?[]const u8 = null,
-    method: ?[]const u8 = null,
-    data: ?[]const u8 = null,
-    query_string: ?[]const u8 = null,
-    cookies: ?[]const u8 = null,
-    headers: ?std.StringHashMap([]const u8) = null,
-    env: ?std.StringHashMap([]const u8) = null,
-};
-
 /// Breadcrumbs interface
 pub const Breadcrumbs = struct {
     values: []Breadcrumb,
@@ -163,9 +154,6 @@ pub const SDKPackage = struct {
     name: []const u8,
     version: []const u8,
 };
-
-/// Context data
-pub const Contexts = std.StringHashMap(std.StringHashMap([]const u8));
 
 /// Debug meta interface
 pub const DebugMeta = struct {
