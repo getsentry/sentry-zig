@@ -34,26 +34,13 @@ clean: ## Clean build artifacts and cache
 	@rm -rf zig-out/ .zig-cache/
 
 format: ## Format all Zig source files
-	@find src/ -name "*.zig" -exec zig fmt {} \;
-	@if [ -d "examples/" ]; then find examples/ -name "*.zig" -exec zig fmt {} \; ; fi
+	@echo "Formatting source files..."
+	@zig fmt src/
+	@if [ -d "examples/" ]; then zig fmt examples/; fi
 
 check: ## Check code formatting and run linter
-	@FAILED=0; \
-	for file in $$(find src/ -name "*.zig"); do \
-		if ! zig fmt --check "$$file" >/dev/null 2>&1; then \
-			echo "File needs formatting: $$file"; \
-			FAILED=1; \
-		fi; \
-	done; \
-	if [ -d "examples/" ]; then \
-		for file in $$(find examples/ -name "*.zig"); do \
-			if ! zig fmt --check "$$file" >/dev/null 2>&1; then \
-				echo "File needs formatting: $$file"; \
-				FAILED=1; \
-			fi; \
-		done; \
-	fi; \
-	if [ $$FAILED -eq 0 ]; then \
+	@echo "Checking code formatting..."
+	@if zig fmt --check src/ && ([ ! -d "examples/" ] || zig fmt --check examples/); then \
 		echo "All files are properly formatted"; \
 	else \
 		echo "Some files need formatting. Run 'make format' to fix."; \
