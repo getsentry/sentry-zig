@@ -1,14 +1,30 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
+const Dsn = @import("types/Dsn.zig").Dsn;
 
 pub const SentryOptions = struct {
-    dsn: ?[]const u8 = null,
+    dsn: ?Dsn = null,
     environment: ?[]const u8 = null,
     release: ?[]const u8 = null,
     debug: bool = false,
     sample_rate: f64 = 1.0,
     send_default_pii: bool = false,
+
+    /// Initialize options with a DSN string
+    pub fn init(allocator: Allocator, dsn: []const u8) !SentryOptions {
+        const parsed_dsn = try Dsn.parse(allocator, dsn);
+        return SentryOptions{
+            .dsn = parsed_dsn,
+        };
+    }
+
+    /// Deinitialize the options and free allocated memory
+    pub fn deinit(self: *const SentryOptions, allocator: Allocator) void {
+        if (self.dsn) |*dsn| {
+            dsn.deinit(allocator);
+        }
+    }
 };
 
 //DUMMY STRUCTURES
@@ -67,7 +83,11 @@ pub const SentryClient = struct {
         if (options.debug) {
             std.log.debug("Initializing Sentry client", .{});
             if (options.dsn) |dsn| {
-                std.log.debug("DSN: {s}", .{dsn});
+                const dsn_str = try dsn.toString(allocator);
+                defer allocator.free(dsn_str);
+                std.log.debug("DSN: {s}", .{dsn_str});
+                std.log.debug("Host: {s}:{d}", .{ dsn.host, dsn.port });
+                std.log.debug("Project ID: {s}", .{dsn.project_id});
             }
             if (options.environment) |env| {
                 std.log.debug("Environment: {s}", .{env});
@@ -165,7 +185,9 @@ pub const SentryClient = struct {
         if (self.options.debug) {
             std.log.debug("Shutting down Sentry client", .{});
         }
-        // TODO: cleanup logic
+        // Cleanup options (including DSN)
+        self.options.deinit(self.allocator);
+        // TODO: additional cleanup logic
         self.close(null);
     }
 };
@@ -221,15 +243,13 @@ fn generateEventId() [32]u8 {
 test "basic client initialization" {
     const allocator = std.testing.allocator;
 
-    // Option 1: Most explicit, using struct initialization
-    const options = SentryOptions{
-        .dsn = "https://key@sentry.io/project",
-        .environment = "testing",
-        .release = "1.0.0",
-        .debug = true,
-        .sample_rate = 0.5,
-        .send_default_pii = true,
-    };
+    // Initialize options with DSN string
+    var options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
+    options.environment = "testing";
+    options.release = "1.0.0";
+    options.debug = true;
+    options.sample_rate = 0.5;
+    options.send_default_pii = true;
 
     var client = try SentryClient.init(allocator, options);
     defer client.deinit();
@@ -239,15 +259,14 @@ test "basic client initialization" {
     try std.testing.expectEqual(@as(f64, 0.5), client.options.sample_rate);
 }
 
-test "initialization with anonymous struct" {
+test "initialization with DSN string" {
     const allocator = std.testing.allocator;
 
-    // Option 2: More concise with anonymous struct literal
-    var client = try SentryClient.init(allocator, .{
-        .dsn = "https://key@sentry.io/project",
-        .send_default_pii = true,
-        // Other fields use defaults
-    });
+    // Initialize options with DSN string
+    var options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
+    options.send_default_pii = true;
+
+    var client = try SentryClient.init(allocator, options);
     defer client.deinit();
 
     try std.testing.expect(client.isActive());
@@ -257,9 +276,7 @@ test "initialization with anonymous struct" {
 test "capture message" {
     const allocator = std.testing.allocator;
 
-    const options = SentryOptions{
-        .dsn = "https://key@sentry.io/project",
-    };
+    const options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
 
     var client = try SentryClient.init(allocator, options);
     defer client.deinit();
@@ -286,9 +303,7 @@ test "inactive client returns null" {
 test "capture exception" {
     const allocator = std.testing.allocator;
 
-    const options = SentryOptions{
-        .dsn = "https://key@sentry.io/project",
-    };
+    const options = try SentryOptions.init(allocator, "https://key@sentry.io/1");
 
     var client = try SentryClient.init(allocator, options);
     defer client.deinit();
