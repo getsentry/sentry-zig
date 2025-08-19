@@ -1,9 +1,11 @@
 const std = @import("std");
-const User = @import("Types.zig").User;
-const Breadcrumb = @import("Types.zig").Breadcrumb;
-const BreadcrumbType = @import("Types.zig").BreadcrumbType;
-const Level = @import("Types.zig").Level;
-const SentryClient = @import("client.zig").SentryClient;
+const types = @import("types");
+
+// Top-level type aliases
+const User = types.User;
+const Breadcrumb = types.Breadcrumb;
+const BreadcrumbType = types.BreadcrumbType;
+const Level = types.Level;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
