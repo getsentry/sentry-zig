@@ -28,6 +28,20 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
     var stack_iterator = std.debug.StackIterator.init(first_trace_addr, null);
     const debug_info = std.debug.getSelfDebugInfo() catch null;
 
+    // Optionally include the first address as its own frame to ensure the current function is captured
+    if (first_trace_addr) |addr| {
+        var first_frame = SentryFrame{
+            .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
+        };
+        if (debug_info) |di| {
+            extractSymbolInfoSentry(di, addr, &first_frame);
+        }
+        frames_list.append(first_frame) catch |err| {
+            first_frame.deinit(allocator);
+            std.debug.print("Warning: Failed to add first frame due to memory: {}\n", .{err});
+        };
+    }
+
     // Collect all frames dynamically - never fail due to buffer size!
     while (stack_iterator.next()) |return_address| {
         var frame = SentryFrame{
@@ -41,6 +55,8 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
 
         // Add frame to dynamic list - this should never fail unless out of memory
         frames_list.append(frame) catch |err| {
+            // Free strings allocated in this frame since we failed to append it
+            frame.deinit(allocator);
             // If we truly run out of memory, at least we have what we collected so far
             std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
             break;
@@ -53,7 +69,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
         std.debug.print("Warning: Failed to convert frames list to owned slice, attempting recovery...\n", .{});
 
         // First try to salvage any frames we collected
-        const collected_frames = frames_list.items;
+        var collected_frames = frames_list.items;
 
         // Always clean up the ArrayList to prevent memory leaks
         defer frames_list.deinit();
@@ -86,20 +102,21 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
                     dst.colno = src.colno;
                     salvaged[i] = dst;
                 }
-                // Now free previously allocated strings in the original frames
-                // and then the backing arraylist memory
+                // Now free all allocated strings in the original frames
+                // before releasing the backing ArrayList memory
                 i = 0;
                 while (i < collected_frames.len) : (i += 1) {
-                    const f = collected_frames[i];
-                    if (f.filename) |p| allocator.free(p);
-                    if (f.abs_path) |p| allocator.free(p);
-                    if (f.function) |p| allocator.free(p);
-                    if (f.instruction_addr) |p| allocator.free(p);
+                    collected_frames[i].deinit(allocator);
                 }
                 std.debug.print("Successfully salvaged {d} frames after allocation failure\n", .{collected_frames.len});
                 return createEventWithFrames(msg, salvaged);
             } else |_| {
                 std.debug.print("Failed to salvage {d} frames due to memory constraints\n", .{collected_frames.len});
+                // Ensure we free any strings allocated inside the collected frames
+                var j: usize = 0;
+                while (j < collected_frames.len) : (j += 1) {
+                    collected_frames[j].deinit(allocator);
+                }
             }
         }
 
@@ -208,6 +225,11 @@ fn parseSymbolLineSentry(line: []const u8, frame: *SentryFrame) void {
                     if (std.mem.indexOf(u8, after_in, " ")) |space_pos| {
                         const func_name = after_in[0..space_pos];
                         frame.function = allocator.dupe(u8, func_name) catch null;
+                    } else {
+                        // No trailing space; take the rest as function name
+                        if (after_in.len > 0) {
+                            frame.function = allocator.dupe(u8, after_in) catch null;
+                        }
                     }
                 }
             }
@@ -215,7 +237,83 @@ fn parseSymbolLineSentry(line: []const u8, frame: *SentryFrame) void {
     }
 }
 
+// Testable send callback plumbing
+pub const SendCallback = *const fn (SentryEvent) void;
+var send_callback: ?SendCallback = null;
+
+pub fn setSendCallback(cb: SendCallback) void {
+    send_callback = cb;
+}
+
 fn sendToSentry(event: SentryEvent) void {
-    _ = event; // Suppress unused parameter warning until implemented
-    // TODO: Implement actual sending to Sentry
+    if (send_callback) |cb| cb(event);
+}
+
+// Helper for tests: same as panic_handler but without process exit
+pub fn panic_handler_test_entry(msg: []const u8, first_trace_addr: ?usize) void {
+    const sentry_event = createSentryEvent(msg, first_trace_addr);
+    sendToSentry(sentry_event);
+}
+
+test "panic_handler: send callback is invoked with created event" {
+    // test-state globals and callback
+    test_send_called = false;
+    test_send_captured_msg = null;
+    setSendCallback(testSendCb);
+
+    const test_msg = "unit-test-message";
+    panic_handler_test_entry(test_msg, @returnAddress());
+
+    try std.testing.expect(test_send_called);
+    try std.testing.expect(test_send_captured_msg != null);
+    try std.testing.expect(std.mem.eql(u8, test_send_captured_msg.?, test_msg));
+}
+
+// Dummy call chain to validate symbol extraction and stack capture
+fn ph_test_one() !void {
+    try ph_test_two();
+}
+fn ph_test_two() !void {
+    try ph_test_three();
+}
+fn ph_test_three() !void {
+    try ph_test_four();
+}
+fn ph_test_four() !void {
+    const ev = createSentryEvent("chain", @returnAddress());
+    // Validate we have frames and addresses
+    try std.testing.expect(ev.exception != null);
+    const st = ev.exception.?.stacktrace.?;
+    try std.testing.expect(st.frames.len > 0);
+    // Every frame should at least have an instruction address
+    for (st.frames) |f| {
+        try std.testing.expect(f.instruction_addr != null);
+    }
+    // Best-effort: function names should include our dummy functions (no line assertions)
+    var have_one = false;
+    var have_two = false;
+    var have_three = false;
+    var have_four = false;
+    for (st.frames) |f| {
+        if (f.function) |fn_name| {
+            if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
+            if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
+            if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
+            if (std.mem.eql(u8, fn_name, "ph_test_four")) have_four = true;
+        }
+    }
+    // Do not assert order or line numbers; only presence of at least three frames in chain
+    try std.testing.expect(have_one and have_two and have_three);
+}
+
+test "panic_handler: stacktrace captures dummy function names (no line asserts)" {
+    try ph_test_one();
+}
+
+// Test-only globals and callback
+var test_send_called: bool = false;
+var test_send_captured_msg: ?[]const u8 = null;
+fn testSendCb(ev: SentryEvent) void {
+    test_send_called = true;
+    if (ev.exception) |ex| test_send_captured_msg = ex.value;
 }
