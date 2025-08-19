@@ -201,11 +201,6 @@ fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: 
     var lines = std.mem.splitScalar(u8, output, '\n');
     if (lines.next()) |first_line| {
         parseSymbolLineSentry(first_line, frame);
-        if (frame.function) |fn_name| {
-            std.debug.print("Extracted function name: '{s}'\n", .{fn_name});
-        } else {
-            std.debug.print("No function name extracted\n", .{});
-        }
     }
 }
 
