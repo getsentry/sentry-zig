@@ -9,6 +9,7 @@ const SDK = @import("types/Event.zig").SDK;
 const SDKPackage = @import("types/Event.zig").SDKPackage;
 const User = @import("types/User.zig").User;
 const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
+const scope = @import("scope.zig");
 
 pub const SentryClient = struct {
     options: SentryOptions,
@@ -28,6 +29,9 @@ pub const SentryClient = struct {
             .active = opts.dsn != null,
             .allocator = allocator,
         };
+
+        // Initialize scope manager
+        try scope.initScopeManager(allocator);
 
         if (opts.debug) {
             std.log.debug("Initializing Sentry client", .{});
@@ -52,7 +56,7 @@ pub const SentryClient = struct {
     }
 
     /// Capture an event and return its ID if successful
-    pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
+    pub fn captureEvent(self: *SentryClient, event: Event, scope_ptr: ?*scope.Scope) !?[32]u8 {
         if (!self.isActive()) {
             if (self.options.debug) {
                 std.log.debug("Client is not active (no DSN configured)", .{});
@@ -60,7 +64,7 @@ pub const SentryClient = struct {
             return null;
         }
 
-        const prepared_event = try self.prepareEvent(event);
+        const prepared_event = try self.prepareEvent(event, scope_ptr);
 
         if (self.options.debug) {
             std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
@@ -83,7 +87,7 @@ pub const SentryClient = struct {
             .exception = exception,
         };
 
-        return self.captureEvent(event);
+        return self.captureEvent(event, null);
     }
 
     /// Capture a simple message
@@ -95,12 +99,16 @@ pub const SentryClient = struct {
             .message = .{ .message = message },
         };
 
-        return self.captureEvent(event);
+        return self.captureEvent(event, null);
     }
 
-    /// Prepare an event by adding client metadata
-    fn prepareEvent(self: *SentryClient, event: Event) !Event {
+    fn prepareEvent(self: *SentryClient, event: Event, scope_ptr: ?*scope.Scope) !Event {
         var prepared = event;
+
+        // Apply scope data if provided
+        if (scope_ptr) |scope_data| {
+            try scope_data.applyToEvent(&prepared, self.allocator);
+        }
 
         // Add SDK info
         if (prepared.sdk == null) {
@@ -238,6 +246,101 @@ test "capture exception" {
 
     const event_id = try client.captureError(exception);
     try std.testing.expect(event_id != null);
+}
+
+test "scope processing - initialization" {
+    const allocator = std.testing.allocator;
+
+    const options = SentryOptions{};
+
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
+    defer client.deinit();
+
+    // Test that scope manager was initialized and client is active
+    try std.testing.expect(client.isActive());
+}
+
+// Helper function to clean up events in tests
+fn cleanupEventForTesting(allocator: std.mem.Allocator, event: *Event) void {
+    // Clean up tags
+    if (event.tags) |*tags| {
+        var iter = tags.iterator();
+        while (iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        tags.deinit();
+    }
+
+    // Clean up fingerprint
+    if (event.fingerprint) |fingerprint| {
+        for (fingerprint) |fp| {
+            allocator.free(fp);
+        }
+        allocator.free(fingerprint);
+    }
+
+    // Clean up breadcrumbs
+    if (event.breadcrumbs) |breadcrumbs| {
+        for (breadcrumbs.values) |*crumb| {
+            crumb.deinit(allocator);
+        }
+        allocator.free(breadcrumbs.values);
+    }
+
+    // Clean up contexts
+    if (event.contexts) |*contexts| {
+        var ctx_iter = contexts.iterator();
+        while (ctx_iter.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            var inner_iter = entry.value_ptr.iterator();
+            while (inner_iter.next()) |inner_entry| {
+                allocator.free(inner_entry.key_ptr.*);
+                allocator.free(inner_entry.value_ptr.*);
+            }
+            entry.value_ptr.deinit();
+        }
+        contexts.deinit();
+    }
+
+    // Clean up user
+    if (event.user) |*user| {
+        user.deinit(allocator);
+    }
+}
+
+test "scope processing - explicit scope" {
+    const allocator = std.testing.allocator;
+
+    const options = SentryOptions{};
+
+    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
+    defer client.deinit();
+
+    // Create a scope manually
+    var test_scope = scope.Scope.init(allocator);
+    defer test_scope.deinit();
+
+    // Set some data on the scope
+    try test_scope.setTag("test_tag", "test_value");
+    test_scope.level = @import("types/Level.zig").Level.warning;
+
+    // Create an event
+    const event = Event{
+        .event_id = EventId.new(),
+        .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+        .platform = "zig",
+        .message = .{ .message = "Test message with scope" },
+    };
+
+    // For testing, we need to prepare the event ourselves to clean it up
+    var prepared_event = try client.prepareEvent(event, &test_scope);
+    defer cleanupEventForTesting(allocator, &prepared_event);
+
+    // Just verify the event was prepared correctly
+    try std.testing.expect(prepared_event.tags != null);
+    try std.testing.expect(prepared_event.tags.?.contains("test_tag"));
+    try std.testing.expect(prepared_event.level == @import("types/Level.zig").Level.warning);
 }
 
 test "event ID generation is UUID v4 compatible" {
