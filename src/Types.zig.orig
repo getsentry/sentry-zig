@@ -9,12 +9,17 @@ pub const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
 pub const SentryEnvelope = @import("types/SentryEnvelope.zig").SentryEnvelope;
 pub const SentryEnvelopeItem = @import("types/SentryEnvelopeItem.zig").SentryEnvelopeItem;
 pub const SentryEnvelopeHeader = @import("types/SentryEnvelopeHeader.zig").SentryEnvelopeHeader;
+pub const Event = @import("types/Event.zig").Event;
 pub const SentryEnvelopeItemHeader = @import("types/SentryEnvelopeItemHeader.zig").SentryEnvelopeItemHeader;
 pub const SentryItemType = @import("types/SentryItemType.zig").SentryItemType;
 pub const Event = @import("types/Event.zig").Event;
 pub const EventId = @import("types/Event.zig").EventId;
+<<<<<<< HEAD
 pub const StackTrace = @import("types/Event.zig").StackTrace;
 pub const Exception = @import("types/Event.zig").Exception;
 pub const Frame = @import("types/Event.zig").Frame;
+||||||| parent of 542d6dd (add custom serialization for HashMap)
+=======
 pub const Breadcrumbs = @import("types/Event.zig").Breadcrumbs;
 pub const Message = @import("types/Event.zig").Message;
+>>>>>>> 542d6dd (add custom serialization for HashMap)
