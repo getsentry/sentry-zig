@@ -76,12 +76,13 @@ pub const SentryClient = struct {
             }
         }
 
-        const envelope_item = try self.transport.envelopeFromEvent(event);
+        const envelope_item = try self.transport.envelopeFromEvent(prepared_event);
+        defer self.allocator.free(envelope_item.data); // Free the allocated data
 
         var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
         const envelope = SentryEnvelope{
             .header = SentryEnvelopeHeader{
-                .event_id = event.event_id,
+                .event_id = prepared_event.event_id,
             },
             .items = buf[0..],
         };
