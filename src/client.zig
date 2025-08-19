@@ -31,9 +31,6 @@ pub const SentryClient = struct {
             .allocator = allocator,
         };
 
-        // Initialize scope manager
-        try scope.initScopeManager(allocator);
-
         if (opts.debug) {
             std.log.debug("Initializing Sentry client", .{});
             if (opts.dsn) |parsed_dsn| {
