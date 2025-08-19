@@ -162,7 +162,7 @@ test "Envelope - Serialize empty envelope" {
         .items = &[_]SentryEnvelopeItem{},
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n", payload);
 }
 
 test "Envelope - Serialize event-id header" {
@@ -185,7 +185,7 @@ test "Envelope - Serialize event-id header" {
         .items = &[_]SentryEnvelopeItem{},
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n", payload);
 }
 
 test "Envelope - Serialize envelope with empty event" {
@@ -218,7 +218,7 @@ test "Envelope - Serialize envelope with empty event" {
         .items = item_buf[0..],
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n{\"type\":\"event\",\"length\":0}\n", payload);
 }
 
 test "Envelope - Serialize full envelope item from event" {
