@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const types = @import("Types.zig");
+const types = @import("types");
 pub const Event = types.Event;
 pub const EventId = types.EventId;
 pub const SentryOptions = types.SentryOptions;
