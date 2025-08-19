@@ -14,6 +14,7 @@ const Allocator = std.mem.Allocator;
 const Mutex = std.Thread.Mutex;
 const RwLock = std.Thread.RwLock;
 const testing = std.testing;
+const SentryClient = @import("client.zig").SentryClient;
 
 pub const ScopeType = enum {
     isolation,
@@ -30,6 +31,7 @@ pub const Scope = struct {
     fingerprint: ?ArrayList([]const u8),
     breadcrumbs: ArrayList(Breadcrumb),
     contexts: std.StringHashMap(std.StringHashMap([]const u8)),
+    client: *SentryClient,
 
     const MAX_BREADCRUMBS = 100;
 
@@ -383,6 +385,10 @@ pub const Scope = struct {
             try self.addBreadcrumb(cloned_crumb);
         }
     }
+
+    pub fn bindClient(self: *Scope, client: *SentryClient) void {
+        self.client = client;
+    }
 };
 
 // Global scope (not thread-local, singleton)
@@ -572,6 +578,24 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
     try scope.addBreadcrumb(breadcrumb);
 }
 
+// Convenience function to get the client
+pub fn getClient() !?SentryClient {
+    var scope = try getCurrentScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    scope = try getIsolationScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    scope = try getGlobalScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    return null;
+}
+
+// Used for tests
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
