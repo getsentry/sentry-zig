@@ -10,6 +10,7 @@ const SDKPackage = @import("types/Event.zig").SDKPackage;
 const User = @import("types/User.zig").User;
 const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
 const scope = @import("scope.zig");
+const test_utils = @import("test_utils.zig");
 
 pub const SentryClient = struct {
     options: SentryOptions,
@@ -260,55 +261,6 @@ test "scope processing - initialization" {
     try std.testing.expect(client.isActive());
 }
 
-// Helper function to clean up events in tests
-fn cleanupEventForTesting(allocator: std.mem.Allocator, event: *Event) void {
-    // Clean up tags
-    if (event.tags) |*tags| {
-        var iter = tags.iterator();
-        while (iter.next()) |entry| {
-            allocator.free(entry.key_ptr.*);
-            allocator.free(entry.value_ptr.*);
-        }
-        tags.deinit();
-    }
-
-    // Clean up fingerprint
-    if (event.fingerprint) |fingerprint| {
-        for (fingerprint) |fp| {
-            allocator.free(fp);
-        }
-        allocator.free(fingerprint);
-    }
-
-    // Clean up breadcrumbs
-    if (event.breadcrumbs) |breadcrumbs| {
-        for (breadcrumbs.values) |*crumb| {
-            crumb.deinit(allocator);
-        }
-        allocator.free(breadcrumbs.values);
-    }
-
-    // Clean up contexts
-    if (event.contexts) |*contexts| {
-        var ctx_iter = contexts.iterator();
-        while (ctx_iter.next()) |entry| {
-            allocator.free(entry.key_ptr.*);
-            var inner_iter = entry.value_ptr.iterator();
-            while (inner_iter.next()) |inner_entry| {
-                allocator.free(inner_entry.key_ptr.*);
-                allocator.free(inner_entry.value_ptr.*);
-            }
-            entry.value_ptr.deinit();
-        }
-        contexts.deinit();
-    }
-
-    // Clean up user
-    if (event.user) |*user| {
-        user.deinit(allocator);
-    }
-}
-
 test "scope processing - explicit scope" {
     const allocator = std.testing.allocator;
 
@@ -335,7 +287,7 @@ test "scope processing - explicit scope" {
 
     // For testing, we need to prepare the event ourselves to clean it up
     var prepared_event = try client.prepareEvent(event, &test_scope);
-    defer cleanupEventForTesting(allocator, &prepared_event);
+    defer test_utils.cleanupEventForTesting(allocator, &prepared_event);
 
     // Just verify the event was prepared correctly
     try std.testing.expect(prepared_event.tags != null);
