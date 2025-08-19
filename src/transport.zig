@@ -40,6 +40,7 @@ pub const HttpTransport = struct {
             netloc,
             dsn.project_id,
         }) catch return TransportResult{ .response_code = 0 };
+        std.log.debug("{}", .{endpoint_url});
         defer self.allocator.free(endpoint_url);
 
         // Parse the URL and make the HTTP request

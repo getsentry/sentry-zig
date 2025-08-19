@@ -48,6 +48,32 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    // Create an executable that uses the library
+    const exe = b.addExecutable(.{
+        .name = "sentry-demo",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Add the types module to the executable
+    exe.root_module.addImport("types", types);
+
+    // Install the executable
+    b.installArtifact(exe);
+
+    // Create a run step for the executable
+    const run_exe = b.addRunArtifact(exe);
+
+    // Allow command line arguments to be passed to the executable
+    if (b.args) |args| {
+        run_exe.addArgs(args);
+    }
+
+    // Create a run step that can be invoked with "zig build run"
+    const run_step = b.step("run", "Run the demo application");
+    run_step.dependOn(&run_exe.step);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{

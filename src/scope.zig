@@ -31,7 +31,7 @@ pub const Scope = struct {
     fingerprint: ?ArrayList([]const u8),
     breadcrumbs: ArrayList(Breadcrumb),
     contexts: std.StringHashMap(std.StringHashMap([]const u8)),
-    client: *SentryClient,
+    client: ?*SentryClient,
 
     const MAX_BREADCRUMBS = 100;
 
@@ -44,6 +44,7 @@ pub const Scope = struct {
             .fingerprint = null,
             .breadcrumbs = ArrayList(Breadcrumb).init(allocator),
             .contexts = std.StringHashMap(std.StringHashMap([]const u8)).init(allocator),
+            .client = null,
         };
     }
 
@@ -579,18 +580,18 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
 }
 
 // Convenience function to get the client
-pub fn getClient() !?SentryClient {
-    var scope = try getCurrentScope();
-    if (scope.client) {
-        return scope.client;
+pub fn getClient() ?*SentryClient {
+    var scope = getCurrentScope() catch return null;
+    if (scope.client) |client| {
+        return client;
     }
-    scope = try getIsolationScope();
-    if (scope.client) {
-        return scope.client;
+    scope = getIsolationScope() catch return null;
+    if (scope.client) |client| {
+        return client;
     }
-    scope = try getGlobalScope();
-    if (scope.client) {
-        return scope.client;
+    scope = getGlobalScope() catch return null;
+    if (scope.client) |client| {
+        return client;
     }
     return null;
 }

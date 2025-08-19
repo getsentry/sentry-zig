@@ -13,3 +13,6 @@ pub const Event = @import("types/Event.zig").Event;
 pub const SentryEnvelopeItemHeader = @import("types/SentryEnvelopeItemHeader.zig").SentryEnvelopeItemHeader;
 pub const SentryItemType = @import("types/SentryItemType.zig").SentryItemType;
 pub const EventId = @import("types/Event.zig").EventId;
+pub const StackTrace = @import("types/Event.zig").StackTrace;
+pub const Exception = @import("types/Event.zig").Exception;
+pub const Frame = @import("types/Event.zig").Frame;

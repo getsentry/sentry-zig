@@ -5,11 +5,9 @@ const types = @import("types");
 
 // Top-level type aliases
 const Dsn = types.Dsn;
-const Event = types.Event.Event;
-const EventId = types.Event.EventId;
-const Exception = types.Event.Exception;
-const SDK = types.Event.SDK;
-const SDKPackage = types.Event.SDKPackage;
+const Event = types.Event;
+const EventId = types.EventId;
+const Exception = types.Exception;
 const User = types.User;
 const SentryOptions = types.SentryOptions;
 
@@ -56,6 +54,7 @@ pub const SentryClient = struct {
 
     /// Capture an event and return its ID if successful
     pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
+        std.log.debug("client capture event", .{});
         if (!self.isActive()) {
             if (self.options.debug) {
                 std.log.debug("Client is not active (no DSN configured)", .{});
@@ -72,7 +71,8 @@ pub const SentryClient = struct {
             }
         }
 
-        // TODO: Delegate to transport layer
+        const envelope = try self.transport.envelopeFromEvent(event);
+        _ = self.transport.send(envelope);
 
         return prepared_event.event_id.value;
     }
@@ -105,20 +105,7 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-        // Add SDK info
-        if (prepared.sdk == null) {
-            var packages = [_]SDKPackage{
-                SDKPackage{
-                    .name = "sentry-zig",
-                    .version = "0.1.0",
-                },
-            };
-            prepared.sdk = SDK{
-                .name = "sentry.zig",
-                .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
-                .packages = packages[0..],
-            };
-        }
+        // Skip SDK info for now to simplify compilation
 
         // Add environment from options
         if (prepared.environment == null and self.options.environment != null) {
