@@ -388,6 +388,7 @@ pub const Scope = struct {
     }
 
     pub fn bindClient(self: *Scope, client: *SentryClient) void {
+        std.log.debug("bindclient", .{});
         self.client = client;
     }
 };
@@ -512,9 +513,13 @@ pub fn initScopeManager(allocator: Allocator) !void {
 
 /// Get the global scope
 pub fn getGlobalScope() !*Scope {
+    std.log.debug("get global scope", .{});
     if (g_scope_manager) |*manager| {
-        return manager.getGlobalScope();
+        const s = manager.getGlobalScope();
+        std.log.debug("global scope {any}", .{s});
+        return s;
     }
+    std.log.debug("no manageer global scope", .{});
     return error.ScopeManagerNotInitialized;
 }
 
@@ -583,14 +588,17 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
 pub fn getClient() ?*SentryClient {
     var scope = getCurrentScope() catch return null;
     if (scope.client) |client| {
+        std.log.debug("current client", .{});
         return client;
     }
     scope = getIsolationScope() catch return null;
     if (scope.client) |client| {
+        std.log.debug("iso client", .{});
         return client;
     }
     scope = getGlobalScope() catch return null;
     if (scope.client) |client| {
+        std.log.debug("gloal client", .{});
         return client;
     }
     return null;

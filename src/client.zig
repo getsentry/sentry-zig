@@ -26,12 +26,14 @@ pub const SentryClient = struct {
 
         // Parse DSN if provided
         if (dsn) |dsn_str| {
+            std.log.debug("parse dsn", .{});
             opts.dsn = try Dsn.parse(allocator, dsn_str);
+            std.log.debug("parsed dsn", .{});
         }
 
         const client = SentryClient{
             .options = opts,
-            .active = opts.dsn != null,
+            .active = true,
             .allocator = allocator,
             .transport = Transport.init(allocator, options),
         };
@@ -51,6 +53,7 @@ pub const SentryClient = struct {
             std.log.debug("Sample rate: {d}", .{opts.sample_rate});
         }
 
+        std.log.debug("active {}", .{client.active});
         return client;
     }
 
@@ -60,11 +63,10 @@ pub const SentryClient = struct {
 
     /// Capture an event and return its ID if successful
     pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
+        std.log.debug("active {}", .{self.active});
         std.log.debug("client capture event", .{});
         if (!self.isActive()) {
-            if (self.options.debug) {
-                std.log.debug("Client is not active (no DSN configured)", .{});
-            }
+            std.log.debug("Client is not active (no DSN configured)", .{});
             return null;
         }
 
@@ -76,6 +78,7 @@ pub const SentryClient = struct {
                 std.log.debug("Message: {s}", .{msg.message});
             }
         }
+        std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
 
         const envelope_item = try self.transport.envelopeFromEvent(event);
         var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
@@ -87,10 +90,8 @@ pub const SentryClient = struct {
             },
             .items = buf[0..],
         };
-        _ = self.transport.send(envelope) catch |err| {
-            if (self.options.debug) {
-                std.log.debug("Failed to send envelope: {any}", .{err});
-            }
+        _ = self.transport.send(envelope) catch {
+            std.log.debug("Failed to send envelope", .{});
         };
 
         return prepared_event.event_id.value;
@@ -153,7 +154,7 @@ pub const SentryClient = struct {
 
     pub fn close(self: *SentryClient, timeout: ?u64) void {
         // TODO: Implement close logic (delegate to transport layer)
-        self.active = false;
+        //self.active = false;
         self.flush(timeout);
     }
 

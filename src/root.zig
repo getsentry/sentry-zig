@@ -18,8 +18,10 @@ pub const addBreadcrumb = scopes.addBreadcrumb;
 pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
     try scopes.initScopeManager(allocator);
     var client = try SentryClient.init(allocator, dsn, options);
+    std.log.debug("hello", .{});
     const global_scope = try scopes.getGlobalScope();
     global_scope.bindClient(&client);
+    std.log.debug("hello", .{});
     return client;
 }
 
