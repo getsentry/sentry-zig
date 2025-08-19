@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const types = @import("types");
+const Transport = @import("transport.zig").HttpTransport;
 
 // Top-level type aliases
 const Dsn = types.Dsn;
@@ -10,11 +11,15 @@ const EventId = types.EventId;
 const Exception = types.Exception;
 const User = types.User;
 const SentryOptions = types.SentryOptions;
+const SentryEnvelope = types.SentryEnvelope;
+const SentryEnvelopeHeader = types.SentryEnvelopeHeader;
+const SentryEnvelopeItem = types.SentryEnvelopeItem;
 
 pub const SentryClient = struct {
     options: SentryOptions,
     active: bool,
     allocator: Allocator,
+    transport: Transport,
 
     pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
         var opts = options;
@@ -28,6 +33,7 @@ pub const SentryClient = struct {
             .options = opts,
             .active = opts.dsn != null,
             .allocator = allocator,
+            .transport = Transport.init(allocator, options),
         };
 
         if (opts.debug) {
@@ -71,7 +77,15 @@ pub const SentryClient = struct {
             }
         }
 
-        const envelope = try self.transport.envelopeFromEvent(event);
+        const envelope_item = try self.transport.envelopeFromEvent(event);
+        const envelope = SentryEnvelope{
+            .header = SentryEnvelopeHeader{
+                .event_id = EventId{
+                    .value = event.event_id.value,
+                },
+            },
+            .items = &[_]SentryEnvelopeItem{.{envelope_item}},
+        };
         _ = self.transport.send(envelope);
 
         return prepared_event.event_id.value;
