@@ -217,7 +217,7 @@ test "Envelope - Serialize envelope with empty event" {
         .items = item_buf[0..],
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0,\"content_type\":null,\"file_name\":null,\"attachment_type\":null,\"platform\":null,\"item_count\":null}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0}\n", payload);
 }
 
 test "Envelope - Serialize full envelope item from event" {

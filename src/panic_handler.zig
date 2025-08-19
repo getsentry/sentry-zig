@@ -14,10 +14,7 @@ const Frame = types.Frame;
 const allocator = std.heap.page_allocator;
 
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    std.log.debug("panic handler", .{});
-
     const sentry_event = createSentryEvent(msg, first_trace_addr);
-    std.log.debug("created event", .{});
 
     _ = sentry.captureEvent(sentry_event);
 

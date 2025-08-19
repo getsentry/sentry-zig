@@ -15,6 +15,12 @@ threadlocal var event_id_counter: u64 = 0;
 pub const EventId = struct {
     value: [32]u8,
 
+    pub fn jsonStringify(self: EventId, _: std.json.StringifyOptions, out_stream: anytype) !void {
+        try out_stream.writeAll("{\"value\":\"");
+        try out_stream.writeAll(&self.value);
+        try out_stream.writeAll("\"}");
+    }
+
     pub fn new() EventId {
         // Initialize PRNG if not already done
         if (event_id_prng == null) {

@@ -19,15 +19,12 @@ pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*Se
     try scopes.initScopeManager(allocator);
     const client = try allocator.create(SentryClient);
     client.* = try SentryClient.init(allocator, dsn, options);
-    std.log.debug("hello", .{});
     const global_scope = try scopes.getGlobalScope();
     global_scope.bindClient(client);
-    std.log.debug("hello", .{});
     return client;
 }
 
 pub fn captureEvent(event: Event) ?EventId {
-    std.log.debug("capture event", .{});
     const client = scopes.getClient() orelse return null;
     const event_id_bytes = client.captureEvent(event) catch return null;
     if (event_id_bytes) |bytes| {
