@@ -5,4 +5,10 @@ const UUID = @import("types").UUID;
 
 pub const SentryEnvelopeHeader = struct {
     event_id: UUID,
+
+    // TODO: fix types and uncomment
+    // sdk_version: i64,
+    // trace_context: ?[]const u8 = null,
+    // sent_at: ?[]const u8 = null,
+    // unknown: ?[]const u8 = null,
 };
