@@ -14,6 +14,7 @@ const Allocator = std.mem.Allocator;
 const Mutex = std.Thread.Mutex;
 const RwLock = std.Thread.RwLock;
 const testing = std.testing;
+const SentryClient = @import("client.zig").SentryClient;
 
 pub const ScopeType = enum {
     isolation,
