@@ -48,6 +48,25 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    const exe = b.addExecutable(.{
+        .name = "send_empty_envelope",
+        .root_source_file = b.path("src/send_empty_envelope.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.linkLibrary(lib);
+    exe.root_module.addImport("types", types);
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const send_empty_envelope_step = b.step("send_empty_envelope", "Send an empty envelope");
+    send_empty_envelope_step.dependOn(&run_cmd.step);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
