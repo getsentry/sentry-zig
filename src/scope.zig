@@ -26,6 +26,7 @@ pub const Scope = struct {
     fingerprint: ?ArrayList([]const u8),
     breadcrumbs: ArrayList(Breadcrumb),
     contexts: std.StringHashMap(std.StringHashMap([]const u8)),
+    client: *SentryClient,
 
     const MAX_BREADCRUMBS = 100;
 
@@ -257,6 +258,10 @@ pub const Scope = struct {
 
             try self.addBreadcrumb(cloned_crumb);
         }
+    }
+
+    pub fn bindClient(self: *Scope, client: *SentryClient) void {
+        self.client = client;
     }
 };
 
