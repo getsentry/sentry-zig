@@ -23,4 +23,3 @@ pub fn serializeNestedStringHashMap(map: std.StringHashMap(std.StringHashMap([]c
     }
     try jw.endObject();
 }
-
