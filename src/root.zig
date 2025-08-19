@@ -43,3 +43,7 @@ pub fn captureMessage(
     defer event.deinit(allocator);
     return captureEvent(event);
 }
+
+test "test transport" {
+    _ = @import("transport.zig");
+}

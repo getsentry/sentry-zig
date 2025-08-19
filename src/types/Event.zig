@@ -5,6 +5,7 @@ const User = @import("User.zig").User;
 const Level = @import("Level.zig").Level;
 const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
+const json_utils = @import("../utils/json_utils.zig");
 
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
@@ -96,6 +97,21 @@ pub const StackTrace = struct {
     frames: []Frame,
     registers: ?std.StringHashMap([]const u8) = null,
 
+    /// Custom JSON serialization to handle StringHashMap function pointer issues
+    pub fn jsonStringify(self: StackTrace, jw: anytype) !void {
+        try jw.beginObject();
+
+        try jw.objectField("frames");
+        try jw.write(self.frames);
+
+        if (self.registers) |registers| {
+            try jw.objectField("registers");
+            try json_utils.serializeStringHashMap(registers, jw);
+        }
+
+        try jw.endObject();
+    }
+
     pub fn deinit(self: *StackTrace, allocator: std.mem.Allocator) void {
         for (self.frames) |*frame| {
             frame.deinit(allocator);
@@ -132,6 +148,85 @@ pub const Frame = struct {
     symbol: ?[]const u8 = null,
     symbol_addr: ?[]const u8 = null,
     instruction_addr: ?[]const u8 = null,
+
+    /// Custom JSON serialization to handle StringHashMap function pointer issues
+    pub fn jsonStringify(self: Frame, jw: anytype) !void {
+        try jw.beginObject();
+
+        // All the simple optional fields
+        if (self.filename) |v| {
+            try jw.objectField("filename");
+            try jw.write(v);
+        }
+        if (self.function) |v| {
+            try jw.objectField("function");
+            try jw.write(v);
+        }
+        if (self.module) |v| {
+            try jw.objectField("module");
+            try jw.write(v);
+        }
+        if (self.lineno) |v| {
+            try jw.objectField("lineno");
+            try jw.write(v);
+        }
+        if (self.colno) |v| {
+            try jw.objectField("colno");
+            try jw.write(v);
+        }
+        if (self.abs_path) |v| {
+            try jw.objectField("abs_path");
+            try jw.write(v);
+        }
+        if (self.context_line) |v| {
+            try jw.objectField("context_line");
+            try jw.write(v);
+        }
+        if (self.pre_context) |v| {
+            try jw.objectField("pre_context");
+            try jw.write(v);
+        }
+        if (self.post_context) |v| {
+            try jw.objectField("post_context");
+            try jw.write(v);
+        }
+        if (self.in_app) |v| {
+            try jw.objectField("in_app");
+            try jw.write(v);
+        }
+        if (self.package) |v| {
+            try jw.objectField("package");
+            try jw.write(v);
+        }
+        if (self.platform) |v| {
+            try jw.objectField("platform");
+            try jw.write(v);
+        }
+        if (self.image_addr) |v| {
+            try jw.objectField("image_addr");
+            try jw.write(v);
+        }
+        if (self.symbol) |v| {
+            try jw.objectField("symbol");
+            try jw.write(v);
+        }
+        if (self.symbol_addr) |v| {
+            try jw.objectField("symbol_addr");
+            try jw.write(v);
+        }
+        if (self.instruction_addr) |v| {
+            try jw.objectField("instruction_addr");
+            try jw.write(v);
+        }
+
+        // HashMap field
+        if (self.vars) |vars| {
+            try jw.objectField("vars");
+            try json_utils.serializeStringHashMap(vars, jw);
+        }
+
+        try jw.endObject();
+    }
 
     pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
         if (self.filename) |filename| allocator.free(filename);
@@ -182,6 +277,45 @@ pub const Mechanism = struct {
     data: ?std.StringHashMap([]const u8) = null,
     meta: ?std.StringHashMap([]const u8) = null,
 
+    /// Custom JSON serialization to handle StringHashMap function pointer issues
+    pub fn jsonStringify(self: Mechanism, jw: anytype) !void {
+        try jw.beginObject();
+
+        // Required field
+        try jw.objectField("type");
+        try jw.write(self.type);
+
+        // Optional simple fields
+        if (self.description) |v| {
+            try jw.objectField("description");
+            try jw.write(v);
+        }
+        if (self.help_link) |v| {
+            try jw.objectField("help_link");
+            try jw.write(v);
+        }
+        if (self.handled) |v| {
+            try jw.objectField("handled");
+            try jw.write(v);
+        }
+        if (self.synthetic) |v| {
+            try jw.objectField("synthetic");
+            try jw.write(v);
+        }
+
+        // HashMap fields
+        if (self.data) |data| {
+            try jw.objectField("data");
+            try json_utils.serializeStringHashMap(data, jw);
+        }
+        if (self.meta) |meta| {
+            try jw.objectField("meta");
+            try json_utils.serializeStringHashMap(meta, jw);
+        }
+
+        try jw.endObject();
+    }
+
     pub fn deinit(self: *Mechanism, allocator: std.mem.Allocator) void {
         allocator.free(self.type);
         if (self.description) |description| allocator.free(description);
@@ -213,6 +347,22 @@ pub const Message = struct {
     params: ?[][]const u8 = null,
     formatted: ?[]const u8 = null,
 
+    /// Custom JSON serialization to ensure proper message serialization
+    pub fn jsonStringify(self: Message, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("message");
+        try jw.write(self.message);
+        if (self.params) |v| {
+            try jw.objectField("params");
+            try jw.write(v);
+        }
+        if (self.formatted) |v| {
+            try jw.objectField("formatted");
+            try jw.write(v);
+        }
+        try jw.endObject();
+    }
+
     pub fn deinit(self: *Message, allocator: std.mem.Allocator) void {
         allocator.free(self.message);
         if (self.formatted) |formatted| allocator.free(formatted);
@@ -229,6 +379,14 @@ pub const Message = struct {
 /// Breadcrumbs interface
 pub const Breadcrumbs = struct {
     values: []Breadcrumb,
+
+    /// Custom JSON serialization to ensure proper breadcrumb serialization
+    pub fn jsonStringify(self: Breadcrumbs, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("values");
+        try jw.write(self.values);
+        try jw.endObject();
+    }
 
     pub fn deinit(self: *Breadcrumbs, allocator: std.mem.Allocator) void {
         for (self.values) |*breadcrumb| {
@@ -247,6 +405,45 @@ pub const Thread = struct {
     main: ?bool = null,
     stacktrace: ?StackTrace = null,
     held_locks: ?std.StringHashMap([]const u8) = null,
+
+    /// Custom JSON serialization to handle StringHashMap function pointer issues
+    pub fn jsonStringify(self: Thread, jw: anytype) !void {
+        try jw.beginObject();
+
+        // Simple optional fields
+        if (self.id) |v| {
+            try jw.objectField("id");
+            try jw.write(v);
+        }
+        if (self.name) |v| {
+            try jw.objectField("name");
+            try jw.write(v);
+        }
+        if (self.crashed) |v| {
+            try jw.objectField("crashed");
+            try jw.write(v);
+        }
+        if (self.current) |v| {
+            try jw.objectField("current");
+            try jw.write(v);
+        }
+        if (self.main) |v| {
+            try jw.objectField("main");
+            try jw.write(v);
+        }
+        if (self.stacktrace) |v| {
+            try jw.objectField("stacktrace");
+            try jw.write(v);
+        }
+
+        // HashMap field
+        if (self.held_locks) |held_locks| {
+            try jw.objectField("held_locks");
+            try json_utils.serializeStringHashMap(held_locks, jw);
+        }
+
+        try jw.endObject();
+    }
 
     pub fn deinit(self: *Thread, allocator: std.mem.Allocator) void {
         if (self.name) |name| allocator.free(name);
@@ -438,6 +635,119 @@ pub const Event = struct {
     // Other interfaces
     debug_meta: ?DebugMeta = null,
     sdk: ?SDK = null,
+
+    /// Custom JSON serialization to handle StringHashMap function pointer issues
+    pub fn jsonStringify(self: Event, jw: anytype) !void {
+        try jw.beginObject();
+
+        // Required fields
+        try jw.objectField("event_id");
+        try jw.write(&self.event_id.value);
+        try jw.objectField("timestamp");
+        try jw.write(self.timestamp);
+        try jw.objectField("platform");
+        try jw.write(self.platform);
+
+        // Let std.json.stringify handle most optional fields
+        if (self.level) |level| {
+            try jw.objectField("level");
+            try jw.write(@tagName(level));
+        }
+        if (self.logger) |logger| {
+            try jw.objectField("logger");
+            try jw.write(logger);
+        }
+        if (self.transaction) |transaction| {
+            try jw.objectField("transaction");
+            try jw.write(transaction);
+        }
+        if (self.server_name) |server_name| {
+            try jw.objectField("server_name");
+            try jw.write(server_name);
+        }
+        if (self.release) |release| {
+            try jw.objectField("release");
+            try jw.write(release);
+        }
+        if (self.dist) |dist| {
+            try jw.objectField("dist");
+            try jw.write(dist);
+        }
+        if (self.environment) |environment| {
+            try jw.objectField("environment");
+            try jw.write(environment);
+        }
+        if (self.fingerprint) |fingerprint| {
+            try jw.objectField("fingerprint");
+            try jw.write(fingerprint);
+        }
+
+        // Custom handling only for HashMap fields with function pointers
+        if (self.tags) |tags| {
+            try jw.objectField("tags");
+            try json_utils.serializeStringHashMap(tags, jw);
+        }
+
+        if (self.modules) |modules| {
+            try jw.objectField("modules");
+            try json_utils.serializeStringHashMap(modules, jw);
+        }
+
+        // Handle other fields normally
+        if (self.errors) |errors| {
+            try jw.objectField("errors");
+            try jw.write(errors);
+        }
+        if (self.exception) |exception| {
+            try jw.objectField("exception");
+            try jw.write(exception);
+        }
+        if (self.message) |message| {
+            try jw.objectField("message");
+            try jw.write(message);
+        }
+        if (self.template) |template| {
+            try jw.objectField("template");
+            try jw.write(template);
+        }
+        if (self.breadcrumbs) |breadcrumbs| {
+            try jw.objectField("breadcrumbs");
+            try jw.write(breadcrumbs);
+        }
+        if (self.user) |user| {
+            try jw.objectField("user");
+            try jw.write(user);
+        }
+        if (self.request) |request| {
+            try jw.objectField("request");
+            try jw.write(request);
+        }
+        if (self.threads) |threads| {
+            try jw.objectField("threads");
+            try jw.write(threads);
+        }
+        if (self.debug_meta) |debug_meta| {
+            try jw.objectField("debug_meta");
+            try jw.write(debug_meta);
+        }
+        if (self.sdk) |sdk| {
+            try jw.objectField("sdk");
+            try jw.write(sdk);
+        }
+
+        // Custom handling for fields with nested HashMap
+        if (self.contexts) |contexts| {
+            try jw.objectField("contexts");
+            try json_utils.serializeNestedStringHashMap(contexts, jw);
+        }
+
+        if (self.stacktrace) |stacktrace| {
+            try jw.objectField("stacktrace");
+            try jw.write(stacktrace);
+        }
+
+        try jw.endObject();
+    }
 
     // TODO
     pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
