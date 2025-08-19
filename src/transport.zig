@@ -36,7 +36,7 @@ pub const HttpTransport = struct {
     }
 
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
-        const payload = try HttpTransport.envelopeToPayload(envelope);
+        const payload = try self.envelopeToPayload(envelope);
         defer self.allocator.free(payload);
 
         // Check if DSN is configured
