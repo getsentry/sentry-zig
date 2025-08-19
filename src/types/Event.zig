@@ -446,9 +446,8 @@ pub const Event = struct {
         return Event{ .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
     }
 
-    pub fn fromMessage(allocator: std.mem.Allocator, message: []const u8, level: Level) Event {
-        _ = allocator;
-        return Event{ .level = level, .message = Message{ .message = message }, .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
+    pub fn fromMessage(allocator: std.mem.Allocator, message: []const u8, level: Level) !Event {
+        return Event{ .level = level, .message = Message{ .message = try allocator.dupe(message) }, .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
     }
 
     pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {

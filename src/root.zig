@@ -35,3 +35,13 @@ pub fn captureError(err: anyerror) ?EventId {
     defer event.deinit(allocator);
     return captureEvent(event);
 }
+
+pub fn captureMessage(
+    message: []const u8,
+    level: Level,
+) ?EventId {
+    const allocator = scopes.getGlobalScope().allocator;
+    const event = Event.fromMessage(allocator, message, level);
+    defer event.deinit(allocator);
+    return captureEvent(event);
+}
