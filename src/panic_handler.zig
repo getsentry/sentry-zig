@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types");
+const sentry = @import("root.zig");
 
 // Top-level type aliases
 const Event = types.Event;
@@ -16,8 +17,9 @@ pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     std.log.debug("panic handler", .{});
 
     const sentry_event = createSentryEvent(msg, first_trace_addr);
+    std.log.debug("created event", .{});
 
-    sendToSentry(sentry_event);
+    sentry.captureEvent(sentry_event);
 
     std.process.exit(1);
 }
