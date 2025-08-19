@@ -35,7 +35,7 @@ pub const SentryClient = struct {
             .options = opts,
             .active = opts.dsn != null,
             .allocator = allocator,
-            .transport = Transport.init(allocator, options),
+            .transport = Transport.init(allocator, opts),
         };
 
         if (opts.debug) {
@@ -81,17 +81,16 @@ pub const SentryClient = struct {
         std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
 
         const envelope_item = try self.transport.envelopeFromEvent(event);
+
         var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
         const envelope = SentryEnvelope{
             .header = SentryEnvelopeHeader{
-                .event_id = EventId{
-                    .value = event.event_id.value,
-                },
+                .event_id = event.event_id,
             },
             .items = buf[0..],
         };
-        _ = self.transport.send(envelope) catch {
-            std.log.debug("Failed to send envelope", .{});
+        _ = self.transport.send(envelope) catch |err| {
+            _ = err;
         };
 
         return prepared_event.event_id.value;
