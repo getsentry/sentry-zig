@@ -1,10 +1,10 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const UUID = @import("UUID.zig").UUID;
+const EventId = @import("Event.zig").EventId;
 
 pub const SentryEnvelopeHeader = struct {
-    event_id: UUID,
+    event_id: EventId,
 
     // TODO: fix types and uncomment
     // sdk_version: i64,
