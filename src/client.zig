@@ -2,21 +2,24 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const types = @import("types");
+const Transport = @import("transport.zig").HttpTransport;
 
 // Top-level type aliases
 const Dsn = types.Dsn;
-const Event = types.Event.Event;
-const EventId = types.Event.EventId;
-const Exception = types.Event.Exception;
-const SDK = types.Event.SDK;
-const SDKPackage = types.Event.SDKPackage;
+const Event = types.Event;
+const EventId = types.EventId;
+const Exception = types.Exception;
 const User = types.User;
 const SentryOptions = types.SentryOptions;
+const SentryEnvelope = types.SentryEnvelope;
+const SentryEnvelopeHeader = types.SentryEnvelopeHeader;
+const SentryEnvelopeItem = types.SentryEnvelopeItem;
 
 pub const SentryClient = struct {
     options: SentryOptions,
     active: bool,
     allocator: Allocator,
+    transport: Transport,
 
     pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
         var opts = options;
@@ -30,6 +33,7 @@ pub const SentryClient = struct {
             .options = opts,
             .active = opts.dsn != null,
             .allocator = allocator,
+            .transport = Transport.init(allocator, opts),
         };
 
         if (opts.debug) {
@@ -72,7 +76,18 @@ pub const SentryClient = struct {
             }
         }
 
-        // TODO: Delegate to transport layer
+        const envelope_item = try self.transport.envelopeFromEvent(prepared_event);
+        defer self.allocator.free(envelope_item.data); // Free the allocated data
+
+        var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
+        const envelope = SentryEnvelope{
+            .header = SentryEnvelopeHeader{
+                .event_id = prepared_event.event_id,
+            },
+            .items = buf[0..],
+        };
+
+        _ = try self.transport.send(envelope);
 
         return prepared_event.event_id.value;
     }
@@ -105,20 +120,7 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-        // Add SDK info
-        if (prepared.sdk == null) {
-            var packages = [_]SDKPackage{
-                SDKPackage{
-                    .name = "sentry-zig",
-                    .version = "0.1.0",
-                },
-            };
-            prepared.sdk = SDK{
-                .name = "sentry.zig",
-                .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
-                .packages = packages[0..],
-            };
-        }
+        // Skip SDK info for now to simplify compilation
 
         // Add environment from options
         if (prepared.environment == null and self.options.environment != null) {

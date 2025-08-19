@@ -15,22 +15,28 @@ const scopes = @import("scope.zig");
 pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
 
-pub fn init(allocator: Allocator, dsn: Dsn, options: SentryOptions) !SentryClient {
-    scopes.initScopeManager(allocator);
-    const client = try SentryClient.init(allocator, dsn, options);
-    scopes.getGlobalScope().bindClient(client);
+pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
+    try scopes.initScopeManager(allocator);
+    const client = try allocator.create(SentryClient);
+    client.* = try SentryClient.init(allocator, dsn, options);
+    const global_scope = try scopes.getGlobalScope();
+    global_scope.bindClient(client);
     return client;
 }
 
 pub fn captureEvent(event: Event) ?EventId {
     const client = scopes.getClient() orelse return null;
-    return client.captureEvent(event);
+    const event_id_bytes = client.captureEvent(event) catch return null;
+    if (event_id_bytes) |bytes| {
+        return EventId{ .value = bytes };
+    }
+    return null;
 }
 
 pub fn captureError(err: anyerror) ?EventId {
-    const allocator = scopes.getGlobalScope().allocator;
-    const event = Event.fromError(allocator, err);
-    defer event.deinit(allocator);
+    const global_scope = scopes.getGlobalScope() catch return null;
+    const event = Event.fromError(global_scope.allocator, err);
+    defer event.deinit(global_scope.allocator);
     return captureEvent(event);
 }
 
@@ -38,9 +44,9 @@ pub fn captureMessage(
     message: []const u8,
     level: Level,
 ) ?EventId {
-    const allocator = scopes.getGlobalScope().allocator;
-    const event = Event.fromMessage(allocator, message, level);
-    defer event.deinit(allocator);
+    const global_scope = scopes.getGlobalScope() catch return null;
+    const event = Event.fromMessage(global_scope.allocator, message, level);
+    defer event.deinit(global_scope.allocator);
     return captureEvent(event);
 }
 

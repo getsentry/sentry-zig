@@ -40,29 +40,67 @@ pub const HttpTransport = struct {
         defer self.allocator.free(payload);
 
         // Check if DSN is configured
-        const dsn = self.options.dsn orelse return TransportResult{ .response_code = 0 };
+        const dsn = self.options.dsn orelse {
+            return TransportResult{ .response_code = 0 };
+        };
 
         // Construct the Sentry envelope endpoint URL
-        const netloc = dsn.getNetloc(self.allocator) catch return TransportResult{ .response_code = 0 };
+        const netloc = dsn.getNetloc(self.allocator) catch {
+            return TransportResult{ .response_code = 0 };
+        };
         defer self.allocator.free(netloc);
 
         const endpoint_url = std.fmt.allocPrint(self.allocator, "{s}://{s}/api/{s}/envelope/", .{
             dsn.scheme,
             netloc,
             dsn.project_id,
-        }) catch return TransportResult{ .response_code = 0 };
+        }) catch {
+            return TransportResult{ .response_code = 0 };
+        };
         defer self.allocator.free(endpoint_url);
 
         // Parse the URL and make the HTTP request
-        const uri = std.Uri.parse(endpoint_url) catch return TransportResult{ .response_code = 0 };
+        const uri = std.Uri.parse(endpoint_url) catch {
+            return TransportResult{ .response_code = 0 };
+        };
 
-        const request = self.client.fetch(std.http.Client.FetchOptions{
+        // Construct the auth header
+        const auth_header = std.fmt.allocPrint(self.allocator, "Sentry sentry_version=7,sentry_key={s},sentry_client=sentry-zig/0.1.0", .{
+            dsn.public_key,
+        }) catch {
+            return TransportResult{ .response_code = 0 };
+        };
+        defer self.allocator.free(auth_header);
+
+        // Create Content-Length header value
+        const content_length = std.fmt.allocPrint(self.allocator, "{d}", .{payload.len}) catch {
+            return TransportResult{ .response_code = 0 };
+        };
+        defer self.allocator.free(content_length);
+
+        const headers = [_]std.http.Header{
+            .{ .name = "Content-Type", .value = "application/x-sentry-envelope" },
+            .{ .name = "Content-Length", .value = content_length },
+            .{ .name = "X-Sentry-Auth", .value = auth_header },
+        };
+
+        var response_body = std.ArrayList(u8).init(self.allocator);
+        defer response_body.deinit();
+
+        const result = self.client.fetch(std.http.Client.FetchOptions{
             .location = std.http.Client.FetchOptions.Location{
                 .uri = uri,
             },
-        }) catch return TransportResult{ .response_code = 0 };
+            .method = .POST,
+            .extra_headers = &headers,
+            .payload = payload,
+            .response_storage = .{ .dynamic = &response_body },
+        }) catch {
+            return TransportResult{ .response_code = 0 };
+        };
+        std.log.debug("sending payload {s}", .{payload});
 
-        return TransportResult{ .response_code = @intCast(@intFromEnum(request.status)) };
+        return TransportResult{ .response_code = @intCast(@intFromEnum(result.status)) };
     }
 
     pub fn envelopeToPayload(self: *HttpTransport, envelope: SentryEnvelope) ![]u8 {
@@ -72,12 +110,19 @@ pub const HttpTransport = struct {
         try std.json.stringify(envelope.header, std.json.StringifyOptions{}, list.writer());
         try list.append('\n');
 
-        for (envelope.items) |item| {
+        for (envelope.items, 0..) |item, i| {
             try std.json.stringify(item.header, std.json.StringifyOptions{}, list.writer());
             try list.append('\n');
+            // Add the actual item data
+            try list.appendSlice(item.data);
+            // Only add newline if not the last item
+            if (i < envelope.items.len - 1) {
+                try list.append('\n');
+            }
         }
 
-        return list.toOwnedSlice();
+        const result = try list.toOwnedSlice();
+        return result;
     }
 
     pub fn envelopeFromEvent(self: *HttpTransport, event: Event) !SentryEnvelopeItem {
@@ -117,7 +162,7 @@ test "Envelope - Serialize empty envelope" {
         .items = &[_]SentryEnvelopeItem{},
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n", payload);
 }
 
 test "Envelope - Serialize event-id header" {
@@ -140,7 +185,7 @@ test "Envelope - Serialize event-id header" {
         .items = &[_]SentryEnvelopeItem{},
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n", payload);
 }
 
 test "Envelope - Serialize envelope with empty event" {
@@ -173,7 +218,7 @@ test "Envelope - Serialize envelope with empty event" {
         .items = item_buf[0..],
     });
     defer allocator.free(payload);
-    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0,\"content_type\":null,\"file_name\":null,\"attachment_type\":null,\"platform\":null,\"item_count\":null}\n", payload);
+    try std.testing.expectEqualStrings("{\"event_id\":\"24f9202c3c9f44deabef9ed3132b41e4\"}\n{\"type\":\"event\",\"length\":0}\n", payload);
 }
 
 test "Envelope - Serialize full envelope item from event" {

@@ -1,15 +1,14 @@
 const std = @import("std");
 const types = @import("types");
+const sentry = @import("root.zig");
 
 // Top-level type aliases
 const Event = types.Event;
+const EventId = types.EventId;
+const StackTrace = types.StackTrace;
 const Level = types.Level;
-
-const SentryStackTrace = Event.StackTrace;
-const SentryFrame = Event.Frame;
-pub const SentryEvent = Event.Event;
-const SentryException = Event.Exception;
-const SentryMessage = Event.Message;
+const Exception = types.Exception;
+const Frame = types.Frame;
 
 /// TODO: Replace with allocator from the sentry client
 const allocator = std.heap.page_allocator;
@@ -17,14 +16,14 @@ const allocator = std.heap.page_allocator;
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     const sentry_event = createSentryEvent(msg, first_trace_addr);
 
-    sendToSentry(sentry_event);
+    _ = sentry.captureEvent(sentry_event);
 
     std.process.exit(1);
 }
 
-pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent {
+pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
     // Create ArrayList to dynamically grow frames - no size limit!
-    var frames_list = std.ArrayList(SentryFrame).init(allocator);
+    var frames_list = std.ArrayList(Frame).init(allocator);
 
     // We'll create the event at the end after collecting frames
     var stack_iterator = std.debug.StackIterator.init(first_trace_addr, null);
@@ -32,7 +31,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
 
     // Optionally include the first address as its own frame to ensure the current function is captured
     if (first_trace_addr) |addr| {
-        var first_frame = SentryFrame{
+        var first_frame = Frame{
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
         };
         if (debug_info) |di| {
@@ -46,7 +45,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
 
     // Collect all frames dynamically - never fail due to buffer size!
     while (stack_iterator.next()) |return_address| {
-        var frame = SentryFrame{
+        var frame = Frame{
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{return_address}) catch null,
         };
 
@@ -66,7 +65,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
     }
 
     // Convert to owned slice with robust error handling
-    const frames: []SentryFrame = frames_list.toOwnedSlice() catch {
+    const frames: []Frame = frames_list.toOwnedSlice() catch {
         // If toOwnedSlice fails, we need to clean up and provide a safe fallback
         std.debug.print("Warning: Failed to convert frames list to owned slice, attempting recovery...\n", .{});
 
@@ -78,13 +77,13 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
 
         if (collected_frames.len > 0) {
             // Try to allocate new memory and copy the frames
-            if (allocator.alloc(SentryFrame, collected_frames.len)) |salvaged| {
+            if (allocator.alloc(Frame, collected_frames.len)) |salvaged| {
                 // Deep-copy strings inside frames that we allocated earlier
                 // so that deinit on the new frames slice is safe
                 var i: usize = 0;
                 while (i < collected_frames.len) : (i += 1) {
                     const src = collected_frames[i];
-                    var dst = SentryFrame{};
+                    var dst = Frame{};
                     dst.filename = if (src.filename) |s| allocator.dupe(u8, s) catch null else null;
                     dst.abs_path = if (src.abs_path) |s| allocator.dupe(u8, s) catch null else null;
                     dst.function = if (src.function) |s| allocator.dupe(u8, s) catch null else null;
@@ -123,7 +122,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
         }
 
         // Fallback: create an empty but valid slice that can be safely freed
-        const empty_frames = allocator.alloc(SentryFrame, 0) catch {
+        const empty_frames = allocator.alloc(Frame, 0) catch {
             // If we can't even allocate an empty slice, we have a critical memory issue
             // In this case, we'll create a minimal event without a stacktrace
             std.debug.print("CRITICAL: Cannot allocate memory for stacktrace - creating minimal event\n", .{});
@@ -137,15 +136,15 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) SentryEvent 
 }
 
 /// Create a Sentry event with the provided frames
-fn createEventWithFrames(msg: []const u8, frames: []SentryFrame) SentryEvent {
+fn createEventWithFrames(msg: []const u8, frames: []Frame) Event {
     // Create stacktrace
-    const stacktrace = SentryStackTrace{
+    const stacktrace = StackTrace{
         .frames = frames,
         .registers = null,
     };
 
     // Create exception
-    const exception = SentryException{
+    const exception = Exception{
         .type = allocator.dupe(u8, "panic") catch "panic",
         .value = allocator.dupe(u8, msg) catch msg,
         .module = null,
@@ -155,8 +154,8 @@ fn createEventWithFrames(msg: []const u8, frames: []SentryFrame) SentryEvent {
     };
 
     // Create the event
-    return SentryEvent{
-        .event_id = Event.EventId.new(),
+    return Event{
+        .event_id = EventId.new(),
         .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
         .platform = "native",
         .level = Level.@"error",
@@ -166,9 +165,9 @@ fn createEventWithFrames(msg: []const u8, frames: []SentryFrame) SentryEvent {
 }
 
 /// Create a minimal Sentry event without stacktrace (for critical memory situations)
-fn createMinimalEvent(msg: []const u8) SentryEvent {
+fn createMinimalEvent(msg: []const u8) Event {
     // Create exception without stacktrace
-    const exception = SentryException{
+    const exception = Exception{
         .type = "panic", // Use string literal to avoid allocation
         .value = msg, // Use original message to avoid allocation
         .module = null,
@@ -178,8 +177,8 @@ fn createMinimalEvent(msg: []const u8) SentryEvent {
     };
 
     // Create minimal event
-    return SentryEvent{
-        .event_id = Event.EventId.new(),
+    return Event{
+        .event_id = EventId.new(),
         .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
         .platform = "native",
         .level = Level.@"error",
@@ -190,7 +189,7 @@ fn createMinimalEvent(msg: []const u8) SentryEvent {
 
 // Best-effort local symbol parsing as a non-fatal enhancement. If it fails,
 // addresses still provide server-side symbolication.
-fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: *SentryFrame) void {
+fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: *Frame) void {
     var temp_buffer: [512]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&temp_buffer);
     const tty_config = std.io.tty.Config.no_color;
@@ -205,7 +204,7 @@ fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: 
     }
 }
 
-fn parseSymbolLineSentry(line: []const u8, frame: *SentryFrame) void {
+fn parseSymbolLineSentry(line: []const u8, frame: *Frame) void {
     if (std.mem.indexOf(u8, line, ":")) |first_colon| {
         const file_part = line[0..first_colon];
         frame.filename = allocator.dupe(u8, file_part) catch null;
@@ -240,14 +239,14 @@ fn parseSymbolLineSentry(line: []const u8, frame: *SentryFrame) void {
 }
 
 // Testable send callback plumbing
-pub const SendCallback = *const fn (SentryEvent) void;
+pub const SendCallback = *const fn (Event) void;
 var send_callback: ?SendCallback = null;
 
 pub fn setSendCallback(cb: SendCallback) void {
     send_callback = cb;
 }
 
-fn sendToSentry(event: SentryEvent) void {
+fn sendToSentry(event: Event) void {
     if (send_callback) |cb| cb(event);
 }
 
@@ -315,7 +314,7 @@ test "panic_handler: stacktrace captures dummy function names (no line asserts)"
 // Test-only globals and callback
 var test_send_called: bool = false;
 var test_send_captured_msg: ?[]const u8 = null;
-fn testSendCb(ev: SentryEvent) void {
+fn testSendCb(ev: Event) void {
     test_send_called = true;
     if (ev.exception) |ex| test_send_captured_msg = ex.value;
 }

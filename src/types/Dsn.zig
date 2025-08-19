@@ -74,9 +74,6 @@ pub const Dsn = struct {
         const path = remaining[0 .. last_slash + 1]; // Include trailing slash
         const project_id_str = remaining[last_slash + 1 ..];
 
-        // Validate project_id is numeric
-        _ = std.fmt.parseInt(u32, project_id_str, 10) catch return error.BadDsn;
-
         return Dsn{
             .scheme = try allocator.dupe(u8, scheme),
             .host = try allocator.dupe(u8, host),

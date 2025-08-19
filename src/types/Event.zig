@@ -15,6 +15,10 @@ threadlocal var event_id_counter: u64 = 0;
 pub const EventId = struct {
     value: [32]u8,
 
+    pub fn jsonStringify(self: EventId, _: std.json.StringifyOptions, out_stream: anytype) !void {
+        try out_stream.writeAll(&self.value);
+    }
+
     pub fn new() EventId {
         // Initialize PRNG if not already done
         if (event_id_prng == null) {
@@ -747,17 +751,6 @@ pub const Event = struct {
         }
 
         try jw.endObject();
-    }
-
-    // TODO
-    pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
-        _ = allocator;
-        _ = err;
-        return Event{ .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
-    }
-
-    pub fn fromMessage(allocator: std.mem.Allocator, message: []const u8, level: Level) !Event {
-        return Event{ .level = level, .message = Message{ .message = try allocator.dupe(message) }, .event_id = EventId.new(), .timestamp = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0 };
     }
 
     pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {
