@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-const SentryEnvelopeItemHeader = @import("types").SentryEnvelopeItemHeader;
+const SentryEnvelopeItemHeader = @import("SentryEnvelopeItemHeader.zig").SentryEnvelopeItemHeader;
 
 pub const SentryEnvelopeItem = struct {
     header: SentryEnvelopeItemHeader,
