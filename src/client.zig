@@ -1,16 +1,17 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
-const Dsn = @import("types/Dsn.zig").Dsn;
-const Event = @import("types/Event.zig").Event;
-const EventId = @import("types/Event.zig").EventId;
-const Exception = @import("types/Event.zig").Exception;
-const SDK = @import("types/Event.zig").SDK;
-const SDKPackage = @import("types/Event.zig").SDKPackage;
-const User = @import("types/User.zig").User;
-const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
-const scope = @import("scope.zig");
-const test_utils = @import("test_utils.zig");
+const types = @import("types");
+
+// Top-level type aliases
+const Dsn = types.Dsn;
+const Event = types.Event.Event;
+const EventId = types.Event.EventId;
+const Exception = types.Event.Exception;
+const SDK = types.Event.SDK;
+const SDKPackage = types.Event.SDKPackage;
+const User = types.User;
+const SentryOptions = types.SentryOptions;
 
 pub const SentryClient = struct {
     options: SentryOptions,
@@ -54,7 +55,7 @@ pub const SentryClient = struct {
     }
 
     /// Capture an event and return its ID if successful
-    pub fn captureEvent(self: *SentryClient, event: Event, scope_ptr: ?*scope.Scope) !?[32]u8 {
+    pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
         if (!self.isActive()) {
             if (self.options.debug) {
                 std.log.debug("Client is not active (no DSN configured)", .{});
@@ -62,7 +63,7 @@ pub const SentryClient = struct {
             return null;
         }
 
-        const prepared_event = try self.prepareEvent(event, scope_ptr);
+        const prepared_event = try self.prepareEvent(event);
 
         if (self.options.debug) {
             std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
@@ -85,7 +86,7 @@ pub const SentryClient = struct {
             .exception = exception,
         };
 
-        return self.captureEvent(event, null);
+        return self.captureEvent(event);
     }
 
     /// Capture a simple message
@@ -97,16 +98,12 @@ pub const SentryClient = struct {
             .message = .{ .message = message },
         };
 
-        return self.captureEvent(event, null);
+        return self.captureEvent(event);
     }
 
-    fn prepareEvent(self: *SentryClient, event: Event, scope_ptr: ?*scope.Scope) !Event {
+    /// Prepare an event by adding client metadata
+    fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
-
-        // Apply scope data if provided
-        if (scope_ptr) |scope_data| {
-            try scope_data.applyToEvent(&prepared, self.allocator);
-        }
 
         // Add SDK info
         if (prepared.sdk == null) {
@@ -244,52 +241,6 @@ test "capture exception" {
 
     const event_id = try client.captureError(exception);
     try std.testing.expect(event_id != null);
-}
-
-test "scope processing - initialization" {
-    const allocator = std.testing.allocator;
-
-    const options = SentryOptions{};
-
-    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
-    defer client.deinit();
-
-    // Test that scope manager was initialized and client is active
-    try std.testing.expect(client.isActive());
-}
-
-test "scope processing - explicit scope" {
-    const allocator = std.testing.allocator;
-
-    const options = SentryOptions{};
-
-    var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
-    defer client.deinit();
-
-    // Create a scope manually
-    var test_scope = scope.Scope.init(allocator);
-    defer test_scope.deinit();
-
-    // Set some data on the scope
-    try test_scope.setTag("test_tag", "test_value");
-    test_scope.level = @import("types/Level.zig").Level.warning;
-
-    // Create an event
-    const event = Event{
-        .event_id = EventId.new(),
-        .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
-        .platform = "zig",
-        .message = .{ .message = "Test message with scope" },
-    };
-
-    // For testing, we need to prepare the event ourselves to clean it up
-    var prepared_event = try client.prepareEvent(event, &test_scope);
-    defer test_utils.cleanupEventForTesting(allocator, &prepared_event);
-
-    // Just verify the event was prepared correctly
-    try std.testing.expect(prepared_event.tags != null);
-    try std.testing.expect(prepared_event.tags.?.contains("test_tag"));
-    try std.testing.expect(prepared_event.level == @import("types/Level.zig").Level.warning);
 }
 
 test "event ID generation is UUID v4 compatible" {
