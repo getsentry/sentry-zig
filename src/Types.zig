@@ -10,6 +10,7 @@ pub const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
 pub const SentryEnvelope = @import("types/SentryEnvelope.zig").SentryEnvelope;
 pub const SentryEnvelopeItem = @import("types/SentryEnvelopeItem.zig").SentryEnvelopeItem;
 pub const SentryEnvelopeHeader = @import("types/SentryEnvelopeHeader.zig").SentryEnvelopeHeader;
+pub const Event = @import("types/Event.zig").Event;
 pub const SentryEnvelopeItemHeader = @import("types/SentryEnvelopeItemHeader.zig").SentryEnvelopeItemHeader;
 pub const SentryItemType = @import("types/SentryItemType.zig").SentryItemType;
 pub const EventId = @import("types/Event.zig").EventId;
