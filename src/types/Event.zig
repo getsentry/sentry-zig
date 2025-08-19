@@ -749,6 +749,17 @@ pub const Event = struct {
         try jw.endObject();
     }
 
+    // TODO
+    pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
+        _ = allocator;
+        _ = err;
+        return Event{ .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
+    }
+
+    pub fn fromMessage(allocator: std.mem.Allocator, message: []const u8, level: Level) !Event {
+        return Event{ .level = level, .message = Message{ .message = try allocator.dupe(message) }, .event_id = EventId.new(), .timestamp = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0 };
+    }
+
     pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {
         // Free platform if it's not the default literal
         if (!std.mem.eql(u8, self.platform, "native")) {
