@@ -37,6 +37,12 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
     });
 
+    const types = b.addModule("types", .{
+        .root_source_file = b.path("src/Types.zig"),
+    });
+
+    lib.root_module.addImport("types", types);
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
@@ -47,6 +53,7 @@ pub fn build(b: *std.Build) void {
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_mod,
     });
+    lib_unit_tests.root_module.addImport("types", types);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
