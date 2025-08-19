@@ -85,10 +85,14 @@ pub const SentryClient = struct {
             },
             .items = buf[0..],
         };
+<<<<<<< HEAD
 
         _ = self.transport.send(envelope) catch {
             // Ignore transport errors for now
         };
+=======
+        _ = try self.transport.send(envelope);
+>>>>>>> c53b86182065314f9d62016b66ca611a8e28187e
 
         return prepared_event.event_id.value;
     }
