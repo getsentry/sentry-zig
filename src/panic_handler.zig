@@ -1,7 +1,9 @@
 const std = @import("std");
-// const Types = @import("Types.zig"); // Unused; remove when no longer needed
-const Event = @import("types/Event.zig");
-const Level = @import("types/Level.zig").Level;
+const types = @import("types");
+
+// Top-level type aliases
+const Event = types.Event;
+const Level = types.Level;
 
 const SentryStackTrace = Event.StackTrace;
 const SentryFrame = Event.Frame;

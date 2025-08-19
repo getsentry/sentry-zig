@@ -1,14 +1,17 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Random = std.Random;
-const Dsn = @import("types/Dsn.zig").Dsn;
-const Event = @import("types/Event.zig").Event;
-const EventId = @import("types/Event.zig").EventId;
-const Exception = @import("types/Event.zig").Exception;
-const SDK = @import("types/Event.zig").SDK;
-const SDKPackage = @import("types/Event.zig").SDKPackage;
-const User = @import("types/User.zig").User;
-const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
+const types = @import("types");
+
+// Top-level type aliases
+const Dsn = types.Dsn;
+const Event = types.Event.Event;
+const EventId = types.Event.EventId;
+const Exception = types.Event.Exception;
+const SDK = types.Event.SDK;
+const SDKPackage = types.Event.SDKPackage;
+const User = types.User;
+const SentryOptions = types.SentryOptions;
 
 pub const SentryClient = struct {
     options: SentryOptions,
@@ -34,7 +37,7 @@ pub const SentryClient = struct {
             if (opts.dsn) |parsed_dsn| {
                 const dsn_str = try parsed_dsn.toString(allocator);
                 defer allocator.free(dsn_str);
-                std.log.debug("DSN: {s}", .{dsn_str});
+                std.log.debug("DSN: {       }", .{dsn_str});
                 std.log.debug("Host: {s}:{d}", .{ parsed_dsn.host, parsed_dsn.port });
                 std.log.debug("Project ID: {s}", .{parsed_dsn.project_id});
             }
