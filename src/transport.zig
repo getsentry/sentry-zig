@@ -74,11 +74,33 @@ test "Envelope - Serialize event-id header" {
                 .value = event_id,
             },
         },
-        .items = &[_]SentryEnvelopeItem{
-            SentryEnvelopeItem{
-                .header = SentryEnvelopeItemHeader{},
-            },
-        },
+        .items = &[_]SentryEnvelopeItem{},
     });
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+}
+
+test "Envelope - Serialize envelope with empty event" {
+    const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
+    var event_id: [32]u8 = undefined;
+    @memcpy(event_id[0..32], cstr[0..32]);
+
+    var item_buf = [_]SentryEnvelopeItem{
+        .{
+            .header = .{
+                .type = .event,
+                .length = 0,
+            },
+            .data = "",
+        },
+    };
+
+    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+        .header = SentryEnvelopeHeader{
+            .event_id = EventId{
+                .value = event_id,
+            },
+        },
+        .items = item_buf[0..],
+    });
+    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0,\"content_type\":null,\"file_name\":null,\"attachment_type\":null,\"platform\":null,\"item_count\":null}\n", payload);
 }
