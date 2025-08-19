@@ -5,6 +5,6 @@ const SentryEnvelopeHeader = @import("types").SentryEnvelopeHeader;
 const SentryEnvelopeItem = @import("types").SentryEnvelopeItem;
 
 pub const SentryEnvelope = struct {
-    header: SentryEnvelope,
+    header: SentryEnvelopeHeader,
     items: []SentryEnvelopeItem,
 };
