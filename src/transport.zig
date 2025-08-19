@@ -35,6 +35,10 @@ pub const HttpTransport = struct {
         return transport;
     }
 
+    pub fn deinit(self: *HttpTransport) void {
+        self.client.deinit();
+    }
+
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
         const payload = try self.envelopeToPayload(envelope);
         defer self.allocator.free(payload);
