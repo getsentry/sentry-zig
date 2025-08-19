@@ -4,7 +4,7 @@ const Allocator = std.mem.Allocator;
 const UUID = @import("types").UUID;
 
 pub const SentryEnvelopeHeader = struct {
-    sentry_id: UUID,
+    event_id: UUID,
     sdk_version: i64,
     trace_context: ?[]const u8 = null,
     sent_at: ?[]const u8 = null,
