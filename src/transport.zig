@@ -6,6 +6,7 @@ const SentryEnvelope = @import("types").SentryEnvelope;
 const TransportResult = @import("types").TransportResult;
 const SentryEnvelopeItem = @import("types").SentryEnvelopeItem;
 const SentryEnvelopeHeader = @import("types").SentryEnvelopeHeader;
+const SentryEnvelopeItemHeader = @import("types").SentryEnvelopeItemHeader;
 const EventId = @import("types").EventId;
 
 pub const HttpTransport = struct {
@@ -47,10 +48,6 @@ pub const HttpTransport = struct {
 };
 
 test "Envelope - Serialize empty envelope" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
     @memcpy(event_id[0..32], cstr[0..32]);
@@ -66,7 +63,22 @@ test "Envelope - Serialize empty envelope" {
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
 }
 
-// test "Envelope - Serialize event-id header" {
-//     const payload = HttpTransport.envelopeToPayload(SentryEnvelope{});
-//     try std.testing.expectEqualStrings(payload, "");
-// }
+test "Envelope - Serialize event-id header" {
+    const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
+    var event_id: [32]u8 = undefined;
+    @memcpy(event_id[0..32], cstr[0..32]);
+
+    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+        .header = SentryEnvelopeHeader{
+            .event_id = EventId{
+                .value = event_id,
+            },
+        },
+        .items = &[_]SentryEnvelopeItem{
+            SentryEnvelopeItem{
+                .header = SentryEnvelopeItemHeader{},
+            },
+        },
+    });
+    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
+}
