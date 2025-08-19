@@ -439,6 +439,18 @@ pub const Event = struct {
     debug_meta: ?DebugMeta = null,
     sdk: ?SDK = null,
 
+    // TODO
+    pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
+        _ = allocator;
+        _ = err;
+        return Event{ .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
+    }
+
+    pub fn fromMessage(allocator: std.mem.Allocator, message: []const u8, level: Level) Event {
+        _ = allocator;
+        return Event{ .level = level, .message = Message{ .message = message }, .event_id = EventId.new(), .timestamp = std.time.timestamp() / 1000 };
+    }
+
     pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {
         // Free platform if it's not the default literal
         if (!std.mem.eql(u8, self.platform, "native")) {

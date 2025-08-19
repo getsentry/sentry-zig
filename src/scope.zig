@@ -3,6 +3,7 @@ const User = @import("Types.zig").User;
 const Breadcrumb = @import("Types.zig").Breadcrumb;
 const BreadcrumbType = @import("Types.zig").BreadcrumbType;
 const Level = @import("Types.zig").Level;
+const SentryClient = @import("client.zig").SentryClient;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -446,6 +447,24 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
     try scope.addBreadcrumb(breadcrumb);
 }
 
+// Convenience function to get the client
+pub fn getClient() !?SentryClient {
+    var scope = try getCurrentScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    scope = try getIsolationScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    scope = try getGlobalScope();
+    if (scope.client) {
+        return scope.client;
+    }
+    return null;
+}
+
+// Used for tests
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
