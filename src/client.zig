@@ -33,7 +33,7 @@ pub const SentryClient = struct {
 
         const client = SentryClient{
             .options = opts,
-            .active = true,
+            .active = opts.dsn != null,
             .allocator = allocator,
             .transport = Transport.init(allocator, options),
         };
@@ -154,7 +154,7 @@ pub const SentryClient = struct {
 
     pub fn close(self: *SentryClient, timeout: ?u64) void {
         // TODO: Implement close logic (delegate to transport layer)
-        //self.active = false;
+        self.active = false;
         self.flush(timeout);
     }
 

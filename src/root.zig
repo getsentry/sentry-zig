@@ -15,12 +15,13 @@ const scopes = @import("scope.zig");
 pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
 
-pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
+pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
     try scopes.initScopeManager(allocator);
-    var client = try SentryClient.init(allocator, dsn, options);
+    const client = try allocator.create(SentryClient);
+    client.* = try SentryClient.init(allocator, dsn, options);
     std.log.debug("hello", .{});
     const global_scope = try scopes.getGlobalScope();
-    global_scope.bindClient(&client);
+    global_scope.bindClient(client);
     std.log.debug("hello", .{});
     return client;
 }
