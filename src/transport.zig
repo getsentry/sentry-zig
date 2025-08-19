@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
 const SentryOptions = @import("types").SentryOptions;
@@ -8,6 +9,14 @@ const SentryEnvelopeItem = @import("types").SentryEnvelopeItem;
 const SentryEnvelopeHeader = @import("types").SentryEnvelopeHeader;
 const SentryEnvelopeItemHeader = @import("types").SentryEnvelopeItemHeader;
 const EventId = @import("types").EventId;
+const Event = @import("types").Event;
+const User = @import("types").User;
+const Breadcrumb = @import("types").Breadcrumb;
+const Breadcrumbs = @import("types").Breadcrumbs;
+const BreadcrumbType = @import("types").BreadcrumbType;
+const Level = @import("types").Level;
+const Message = @import("types").Message;
+const test_utils = @import("utils/test_utils.zig");
 
 pub const HttpTransport = struct {
     client: std.http.Client,
@@ -77,6 +86,23 @@ pub const HttpTransport = struct {
         try bufferedWriter.flush();
         return fbs.getWritten();
     }
+
+    pub fn envelopeFromEvent(event: Event) !SentryEnvelopeItem {
+        var buf: [1024]u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&buf);
+
+        var bufferedWriter = std.io.bufferedWriter(fbs.writer());
+
+        try std.json.stringify(event, .{}, bufferedWriter.writer());
+        try bufferedWriter.flush();
+        return SentryEnvelopeItem{
+            .header = .{
+                .type = .event,
+                .length = buf.len,
+            },
+            .data = fbs.getWritten(),
+        };
+    }
 };
 
 test "Envelope - Serialize empty envelope" {
@@ -135,4 +161,34 @@ test "Envelope - Serialize envelope with empty event" {
         .items = item_buf[0..],
     });
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0,\"content_type\":null,\"file_name\":null,\"attachment_type\":null,\"platform\":null,\"item_count\":null}\n", payload);
+}
+
+test "Envelope - Serialize full envelope item from event" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var event = try test_utils.createFullTestEvent(allocator);
+    defer event.deinit(allocator);
+
+    // Override dynamic fields with fixed values for predictable testing
+    event.event_id = EventId{ .value = "24f9202c3c9f44deabef9ed3132b41e4".* };
+    event.timestamp = 1640995200.0; // Fixed timestamp: Jan 1, 2022
+
+    // Also fix breadcrumb timestamp for predictable testing
+    if (event.breadcrumbs) |*breadcrumbs| {
+        for (breadcrumbs.values) |*breadcrumb| {
+            breadcrumb.timestamp = 1640995200; // Fixed timestamp: Jan 1, 2022
+        }
+    }
+
+    const json_result = try HttpTransport.envelopeFromEvent(event);
+    const json_string = json_result.data;
+
+    // Construct expected JSON string - based on actual output, null fields are omitted
+    const expected_json =
+        \\{"event_id":"24f9202c3c9f44deabef9ed3132b41e4","timestamp":1.6409952e9,"platform":"native","level":"error","logger":"test-logger","transaction":"test-transaction","server_name":"test-server","release":"1.0.0","dist":"1","environment":"test","fingerprint":["custom","fingerprint"],"tags":{"environment":"test","version":"1.0.0"},"modules":{"mymodule":"1.0.0"},"message":{"message":"Test error message","formatted":"Test error message"},"breadcrumbs":{"values":[{"message":"HTTP Request","type":"http","level":"info","timestamp":1640995200,"category":"http","data":{"url":"/api/test","method":"GET"}}]},"user":{"id":"123","username":"testuser","email":"test@example.com","name":"Test User","ip_address":"192.168.1.1"}}
+    ;
+
+    try testing.expectEqualStrings(expected_json, json_string);
 }
