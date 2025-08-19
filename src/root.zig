@@ -25,7 +25,6 @@ pub fn init(allocator: Allocator, dsn: Dsn, options: SentryOptions) !SentryClien
 
 pub fn captureEvent(event: Event) ?EventId {
     const client = scopes.getClient() orelse return null;
-    // TODO: apply scope data to event
     return client.captureEvent(event);
 }
 
