@@ -11,4 +11,7 @@ pub const SentryEnvelopeItem = @import("types/SentryEnvelopeItem.zig").SentryEnv
 pub const SentryEnvelopeHeader = @import("types/SentryEnvelopeHeader.zig").SentryEnvelopeHeader;
 pub const SentryEnvelopeItemHeader = @import("types/SentryEnvelopeItemHeader.zig").SentryEnvelopeItemHeader;
 pub const SentryItemType = @import("types/SentryItemType.zig").SentryItemType;
+pub const Event = @import("types/Event.zig").Event;
 pub const EventId = @import("types/Event.zig").EventId;
+pub const Breadcrumbs = @import("types/Event.zig").Breadcrumbs;
+pub const Message = @import("types/Event.zig").Message;
