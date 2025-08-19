@@ -78,13 +78,14 @@ pub const SentryClient = struct {
         }
 
         const envelope_item = try self.transport.envelopeFromEvent(event);
+        const buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
         const envelope = SentryEnvelope{
             .header = SentryEnvelopeHeader{
                 .event_id = EventId{
                     .value = event.event_id.value,
                 },
             },
-            .items = &[_]SentryEnvelopeItem{.{envelope_item}},
+            .items = buf[0..],
         };
         _ = self.transport.send(envelope);
 
