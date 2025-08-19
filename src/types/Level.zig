@@ -1,4 +1,3 @@
-/// Sentry breadcrumb types
 /// Sentry severity levels
 pub const Level = enum {
     debug,
