@@ -45,15 +45,3 @@ pub fn captureMessage(
     defer event.deinit(allocator);
     return captureEvent(event);
 }
-
-pub const ConfigureScopeOptions = struct {
-    scope_type: ?ScopeType,
-};
-
-pub const ConfigureScopeCallback = fn (*scopes.Scope) void;
-
-pub fn configureScope(options: ConfigureScopeOptions, callback: ConfigureScopeCallback, context: ?*anyopaque) void {
-    const scope_type = options.scope_type orelse ScopeType.isolation;
-    const scope = try scopes.getScope(scope_type);
-    callback(scope, context);
-}
