@@ -1,8 +1,11 @@
 const std = @import("std");
-const User = @import("types").User;
-const Breadcrumb = @import("types").Breadcrumb;
-const BreadcrumbType = @import("types").BreadcrumbType;
-const Level = @import("types").Level;
+const types = @import("types");
+
+// Top-level type aliases
+const User = types.User;
+const Breadcrumb = types.Breadcrumb;
+const BreadcrumbType = types.BreadcrumbType;
+const Level = types.Level;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
