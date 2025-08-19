@@ -106,7 +106,7 @@ pub const HttpTransport = struct {
         var list = std.ArrayList(u8).init(self.allocator);
         errdefer list.deinit();
 
-        try std.json.stringify(envelope.header, std.json.StringifyOptions{}, list.writer());
+        try std.json.stringify(envelope.header.event_id, std.json.StringifyOptions{}, list.writer());
         try list.append('\n');
 
         for (envelope.items, 0..) |item, i| {

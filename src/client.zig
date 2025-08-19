@@ -89,9 +89,7 @@ pub const SentryClient = struct {
             },
             .items = buf[0..],
         };
-        _ = self.transport.send(envelope) catch |err| {
-            _ = err;
-        };
+        _ = try self.transport.send(envelope);
 
         return prepared_event.event_id.value;
     }
