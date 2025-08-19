@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        zig-version: [0.14.1, master]
+        zig-version: [0.14.1]
     
     runs-on: ${{ matrix.os }}
     
@@ -36,7 +36,7 @@ jobs:
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
-        version: ${{ matrix.zig-version }}
+        version: 0.14.1
 
     - name: Check formatting
       run: zig fmt --check src/
@@ -51,7 +51,7 @@ jobs:
     - name: Setup Zig
       uses: mlugg/setup-zig@v2
       with:
-        version: ${{ matrix.zig-version }}
+        version: 0.14.1
 
     - name: Zig check
       run: zig build --summary all
