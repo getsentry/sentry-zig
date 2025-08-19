@@ -27,30 +27,43 @@ pub const HttpTransport = struct {
         self.client.connect();
     }
 
-    pub fn envelopeToPayload(envelope: SentryEnvelope) []u8 {
+    pub fn envelopeToPayload(envelope: SentryEnvelope) ![]u8 {
         var buf: [1024]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf);
 
         var bufferedWriter = std.io.bufferedWriter(fbs.writer());
 
-        std.json.stringify(envelope.header, std.json.StringifyOptions{}, bufferedWriter);
-        bufferedWriter.write("\n");
+        try std.json.stringify(envelope.header, std.json.StringifyOptions{}, bufferedWriter.writer());
+        _ = try bufferedWriter.write("\n");
 
         for (envelope.items) |item| {
-            std.json.stringify(item.header, std.json.StringifyOptions{}, bufferedWriter);
-            bufferedWriter.write("\n");
+            try std.json.stringify(item.header, std.json.StringifyOptions{}, bufferedWriter.writer());
+            _ = try bufferedWriter.write("\n");
         }
 
-        return bufferedWriter.flush();
+        try bufferedWriter.flush();
+        return fbs.getWritten();
     }
 };
 
 test "Envelope - Serialize empty envelope" {
-    const payload = HttpTransport.envelopeToPayload(SentryEnvelope{
-        .header = SentryEnvelopeHeader{ .event_id = EventId.new() },
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    // const allocator = gpa.allocator();
+
+    const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
+    var event_id: [32]u8 = undefined;
+    @memcpy(event_id[0..32], cstr[0..32]);
+
+    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+        .header = SentryEnvelopeHeader{
+            .event_id = EventId{
+                .value = event_id,
+            },
+        },
         .items = &[_]SentryEnvelopeItem{},
     });
-    try std.testing.expectEqualStrings(payload, "");
+    try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
 }
 
 // test "Envelope - Serialize event-id header" {
