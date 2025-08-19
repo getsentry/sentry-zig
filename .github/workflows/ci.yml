@@ -24,7 +24,7 @@ jobs:
         version: ${{ matrix.zig-version }}
 
     - name: Run tests
-      run: zig build test
+      run: zig build test --summary all
 
   format-check:
     runs-on: ubuntu-latest

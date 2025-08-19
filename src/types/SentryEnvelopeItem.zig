@@ -3,4 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const SentryEnvelopeItemHeader = @import("Types.zig").SentryEnvelopeItemHeader;
 
-pub const SentryEnvelopeItem = struct { header: SentryEnvelopeItemHeader };
+pub const SentryEnvelopeItem = struct {
+    header: SentryEnvelopeItemHeader,
+    data: []u8,
+};
