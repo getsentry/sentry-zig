@@ -24,8 +24,39 @@ pub const HttpTransport = struct {
         return transport;
     }
 
-    pub fn send(self: *HttpTransport) TransportResult {
-        self.client.connect();
+    pub fn send(self: *HttpTransport, envelope: SentryEnvelope) TransportResult {
+        const payload = try self.envelopeToPayload(envelope);
+        defer self.allocator.free(payload);
+
+        // Check if DSN is configured
+        const dsn = self.options.dsn orelse return TransportResult{ .response_code = 0 };
+
+        // Construct the Sentry envelope endpoint URL
+        const netloc = dsn.getNetloc(self.allocator) catch return TransportResult{ .response_code = 0 };
+        defer self.allocator.free(netloc);
+
+        const endpoint_url = std.fmt.allocPrint(self.allocator, "{s}://{s}/api/{s}/envelope/", .{
+            dsn.scheme,
+            netloc,
+            dsn.project_id,
+        }) catch return TransportResult{ .response_code = 0 };
+        defer self.allocator.free(endpoint_url);
+
+        // Parse the URL and make the HTTP request
+        const uri = std.Uri.parse(endpoint_url) catch return TransportResult{ .response_code = 0 };
+
+        var request = self.client.open(.POST, uri, .{
+            .server_header_buffer = &[_]u8{0} ** 1024,
+        }) catch return TransportResult{ .response_code = 0 };
+        defer request.deinit();
+
+        request.transfer_encoding = .{ .content_length = payload.len };
+        request.send() catch return TransportResult{ .response_code = 0 };
+        request.writeAll(payload) catch return TransportResult{ .response_code = 0 };
+        request.finish() catch return TransportResult{ .response_code = 0 };
+        request.wait() catch return TransportResult{ .response_code = 0 };
+
+        return TransportResult{ .response_code = @intCast(@intFromEnum(request.response.status)) };
     }
 
     pub fn envelopeToPayload(envelope: SentryEnvelope) ![]u8 {
