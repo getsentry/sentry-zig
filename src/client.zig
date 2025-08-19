@@ -78,7 +78,7 @@ pub const SentryClient = struct {
         }
 
         const envelope_item = try self.transport.envelopeFromEvent(event);
-        const buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
+        var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
         const envelope = SentryEnvelope{
             .header = SentryEnvelopeHeader{
                 .event_id = EventId{
@@ -87,7 +87,11 @@ pub const SentryClient = struct {
             },
             .items = buf[0..],
         };
-        _ = self.transport.send(envelope);
+        _ = self.transport.send(envelope) catch |err| {
+            if (self.options.debug) {
+                std.log.debug("Failed to send envelope: {any}", .{err});
+            }
+        };
 
         return prepared_event.event_id.value;
     }

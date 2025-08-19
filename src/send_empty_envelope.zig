@@ -35,5 +35,5 @@ pub fn main() !void {
         },
         .items = &[_]SentryEnvelopeItem{},
     });
-    std.log.debug("{}", .{status_code});
+    std.log.debug("{any}", .{status_code});
 }

@@ -36,7 +36,7 @@ pub const HttpTransport = struct {
     }
 
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
-        const payload = try HttpTransport.envelopeToPayload(envelope);
+        const payload = try self.envelopeToPayload(envelope);
         defer self.allocator.free(payload);
 
         // Check if DSN is configured
@@ -51,7 +51,7 @@ pub const HttpTransport = struct {
             netloc,
             dsn.project_id,
         }) catch return TransportResult{ .response_code = 0 };
-        std.log.debug("{}", .{endpoint_url});
+        std.log.debug("{s}", .{endpoint_url});
         defer self.allocator.free(endpoint_url);
 
         // Parse the URL and make the HTTP request
