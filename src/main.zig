@@ -26,15 +26,6 @@ pub fn main() !void {
     };
     defer client.deinit();
 
-    // Set up panic handler to use Sentry
-    panic_handler.setSendCallback(sentryPanicCallback);
-
     // Trigger a panic to demonstrate the integration
     @panic("This is a test panic to demonstrate Sentry integration!");
-}
-
-// Custom panic callback that sends the event to Sentry using the top-level API
-fn sentryPanicCallback(event: sentry.Event) void {
-    // Use the top-level captureEvent API from root.zig
-    _ = sentry.captureEvent(event);
 }
