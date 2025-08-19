@@ -8,3 +8,5 @@ pub const UUID = @import("types/UUID.zig").UUID;
 pub const TransportResult = @import("types/TransportResult.zig").TransportResult;
 pub const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
 pub const SentryEnvelope = @import("types/SentryEnvelope.zig").SentryEnvelope;
+pub const SentryEnvelopeItem = @import("types/SentryEnvelopeItem.zig").SentryEnvelopeItem;
+pub const SentryEnvelopeHeader = @import("types/SentryEnvelopeHeader.zig").SentryEnvelopeHeader;
