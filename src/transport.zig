@@ -68,48 +68,50 @@ pub const HttpTransport = struct {
         return TransportResult{ .response_code = @intCast(@intFromEnum(request.response.status)) };
     }
 
-    pub fn envelopeToPayload(envelope: SentryEnvelope) ![]u8 {
-        var buf: [1024]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
+    pub fn envelopeToPayload(self: *HttpTransport, envelope: SentryEnvelope) ![]u8 {
+        var list = std.ArrayList(u8).init(self.allocator);
+        errdefer list.deinit();
 
-        var bufferedWriter = std.io.bufferedWriter(fbs.writer());
-
-        try std.json.stringify(envelope.header, std.json.StringifyOptions{}, bufferedWriter.writer());
-        _ = try bufferedWriter.write("\n");
+        try std.json.stringify(envelope.header, std.json.StringifyOptions{}, list.writer());
+        try list.append('\n');
 
         for (envelope.items) |item| {
-            try std.json.stringify(item.header, std.json.StringifyOptions{}, bufferedWriter.writer());
-            _ = try bufferedWriter.write("\n");
+            try std.json.stringify(item.header, std.json.StringifyOptions{}, list.writer());
+            try list.append('\n');
         }
 
-        try bufferedWriter.flush();
-        return fbs.getWritten();
+        return list.toOwnedSlice();
     }
 
-    pub fn envelopeFromEvent(event: Event) !SentryEnvelopeItem {
-        var buf: [1024]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&buf);
+    pub fn envelopeFromEvent(self: *HttpTransport, event: Event) !SentryEnvelopeItem {
+        var list = std.ArrayList(u8).init(self.allocator);
+        errdefer list.deinit();
 
-        var bufferedWriter = std.io.bufferedWriter(fbs.writer());
+        try std.json.stringify(event, .{}, list.writer());
 
-        try std.json.stringify(event, .{}, bufferedWriter.writer());
-        try bufferedWriter.flush();
+        const data = try list.toOwnedSlice();
         return SentryEnvelopeItem{
             .header = .{
                 .type = .event,
-                .length = buf.len,
+                .length = @intCast(data.len), // Use actual data length, not buffer length
             },
-            .data = fbs.getWritten(),
+            .data = data,
         };
     }
 };
 
 test "Envelope - Serialize empty envelope" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var transport = HttpTransport.init(allocator, SentryOptions{});
+
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
     @memcpy(event_id[0..32], cstr[0..32]);
 
-    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+    const payload = try transport.envelopeToPayload(SentryEnvelope{
         .header = SentryEnvelopeHeader{
             .event_id = EventId{
                 .value = event_id,
@@ -117,15 +119,22 @@ test "Envelope - Serialize empty envelope" {
         },
         .items = &[_]SentryEnvelopeItem{},
     });
+    defer allocator.free(payload);
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
 }
 
 test "Envelope - Serialize event-id header" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var transport = HttpTransport.init(allocator, SentryOptions{});
+
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
     @memcpy(event_id[0..32], cstr[0..32]);
 
-    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+    const payload = try transport.envelopeToPayload(SentryEnvelope{
         .header = SentryEnvelopeHeader{
             .event_id = EventId{
                 .value = event_id,
@@ -133,10 +142,15 @@ test "Envelope - Serialize event-id header" {
         },
         .items = &[_]SentryEnvelopeItem{},
     });
+    defer allocator.free(payload);
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n", payload);
 }
 
 test "Envelope - Serialize envelope with empty event" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
     @memcpy(event_id[0..32], cstr[0..32]);
@@ -151,7 +165,9 @@ test "Envelope - Serialize envelope with empty event" {
         },
     };
 
-    const payload = try HttpTransport.envelopeToPayload(SentryEnvelope{
+    var transport = HttpTransport.init(allocator, SentryOptions{});
+
+    const payload = try transport.envelopeToPayload(SentryEnvelope{
         .header = SentryEnvelopeHeader{
             .event_id = EventId{
                 .value = event_id,
@@ -159,6 +175,7 @@ test "Envelope - Serialize envelope with empty event" {
         },
         .items = item_buf[0..],
     });
+    defer allocator.free(payload);
     try std.testing.expectEqualStrings("{\"event_id\":{\"value\":\"24f9202c3c9f44deabef9ed3132b41e4\"}}\n{\"type\":\"event\",\"length\":0,\"content_type\":null,\"file_name\":null,\"attachment_type\":null,\"platform\":null,\"item_count\":null}\n", payload);
 }
 
@@ -181,7 +198,9 @@ test "Envelope - Serialize full envelope item from event" {
         }
     }
 
-    const json_result = try HttpTransport.envelopeFromEvent(event);
+    var transport = HttpTransport.init(allocator, SentryOptions{});
+    const json_result = try transport.envelopeFromEvent(event);
+    defer allocator.free(json_result.data);
     const json_string = json_result.data;
 
     // Construct expected JSON string - based on actual output, null fields are omitted
