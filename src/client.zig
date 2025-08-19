@@ -37,7 +37,7 @@ pub const SentryClient = struct {
             if (opts.dsn) |parsed_dsn| {
                 const dsn_str = try parsed_dsn.toString(allocator);
                 defer allocator.free(dsn_str);
-                std.log.debug("DSN: {       }", .{dsn_str});
+                std.log.debug("DSN: {s}", .{dsn_str});
                 std.log.debug("Host: {s}:{d}", .{ parsed_dsn.host, parsed_dsn.port });
                 std.log.debug("Project ID: {s}", .{parsed_dsn.project_id});
             }
