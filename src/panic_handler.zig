@@ -201,6 +201,11 @@ fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: 
     var lines = std.mem.splitScalar(u8, output, '\n');
     if (lines.next()) |first_line| {
         parseSymbolLineSentry(first_line, frame);
+        if (frame.function) |fn_name| {
+            std.debug.print("Extracted function name: '{s}'\n", .{fn_name});
+        } else {
+            std.debug.print("No function name extracted\n", .{});
+        }
     }
 }
 
@@ -223,14 +228,20 @@ fn parseSymbolLineSentry(line: []const u8, frame: *Frame) void {
                 const after_col = after_line[third_colon + 1 ..];
                 if (std.mem.indexOf(u8, after_col, " in ")) |in_pos| {
                     const after_in = after_col[in_pos + 4 ..];
-                    if (std.mem.indexOf(u8, after_in, " ")) |space_pos| {
-                        const func_name = after_in[0..space_pos];
+                    // Handle both Unix and Windows formats
+                    // Unix: "0x123 in function_name (file.zig)"
+                    // Windows: "0x123 in function_name (test.exe.obj)"
+                    // Complex: "0x123 in test.function: name with spaces (file.zig)"
+                    var func_name = after_in;
+
+                    // Remove the parenthetical module suffix like "(test.exe.obj)" or "(file.zig)"
+                    if (std.mem.lastIndexOf(u8, func_name, " (")) |last_space_paren| {
+                        func_name = func_name[0..last_space_paren];
+                    }
+
+                    func_name = std.mem.trim(u8, func_name, " \t\r\n");
+                    if (func_name.len > 0) {
                         frame.function = allocator.dupe(u8, func_name) catch null;
-                    } else {
-                        // No trailing space; take the rest as function name
-                        if (after_in.len > 0) {
-                            frame.function = allocator.dupe(u8, after_in) catch null;
-                        }
                     }
                 }
             }
