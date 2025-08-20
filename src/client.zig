@@ -159,7 +159,7 @@ pub const SentryClient = struct {
         }
         self.close(null);
         self.transport.deinit();
-        self.options.deinit(self.allocator);
+        self.options.deinit();
     }
 };
 

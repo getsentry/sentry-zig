@@ -57,7 +57,7 @@ pub const Scope = struct {
         self.tags.deinit();
 
         if (self.user) |*user| {
-            user.deinit(self.allocator);
+            user.deinit();
         }
 
         if (self.fingerprint) |*fp| {
@@ -182,7 +182,7 @@ pub const Scope = struct {
     /// Set user information
     pub fn setUser(self: *Scope, user: User) void {
         if (self.user) |*old_user| {
-            old_user.deinit(self.allocator);
+            old_user.deinit();
         }
         self.user = user;
     }

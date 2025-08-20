@@ -811,7 +811,7 @@ pub const Event = struct {
 
         // Free scope interfaces
         if (self.breadcrumbs) |*breadcrumbs| breadcrumbs.deinit(allocator);
-        if (self.user) |*user| user.deinit(allocator);
+        if (self.user) |*user| user.deinit();
         if (self.request) |*request| request.deinit(allocator);
         if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
         if (self.threads) |*threads| threads.deinit(allocator);

@@ -4,23 +4,51 @@ const testing = std.testing;
 
 /// User information for Sentry events
 pub const User = struct {
+    allocator: ?Allocator = null,
+
     id: ?[]const u8 = null,
     username: ?[]const u8 = null,
     email: ?[]const u8 = null,
     name: ?[]const u8 = null,
     ip_address: ?[]const u8 = null,
 
-    pub fn deinit(self: *User, allocator: Allocator) void {
-        if (self.id) |id| allocator.free(id);
-        if (self.username) |username| allocator.free(username);
-        if (self.email) |email| allocator.free(email);
-        if (self.name) |name| allocator.free(name);
-        if (self.ip_address) |ip| allocator.free(ip);
+    pub fn init(
+        allocator: Allocator,
+        id: ?[]const u8,
+        username: ?[]const u8,
+        email: ?[]const u8,
+        name: ?[]const u8,
+        ip_address: ?[]const u8,
+    ) !@This() {
+        const id_copy = if (id) |id_capture| try std.mem.dupe(allocator, u8, id_capture);
+        const username_copy = if (username) |username_capture| try std.mem.dupe(allocator, u8, username_capture);
+        const email_copy = if (email) |email_capture| try std.mem.dupe(allocator, u8, email_capture);
+        const name_copy = if (name) |name_capture| try std.mem.dupe(allocator, u8, name_capture);
+        const ip_address_copy = if (ip_address) |ip_address_capture| try std.mem.dupe(allocator, u8, ip_address_capture);
+
+        return .{
+            .allocator = allocator,
+
+            .id = id_copy,
+            .username = username_copy,
+            .email = email_copy,
+            .name = name_copy,
+            .ip_address = ip_address_copy,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.allocator) |allocator| if (self.id) |id| allocator.free(id);
+        if (self.allocator) |allocator| if (self.username) |username| allocator.free(username);
+        if (self.allocator) |allocator| if (self.email) |email| allocator.free(email);
+        if (self.allocator) |allocator| if (self.name) |name| allocator.free(name);
+        if (self.allocator) |allocator| if (self.ip_address) |ip| allocator.free(ip);
     }
 
     /// Create a deep copy of the user
     pub fn clone(self: User, allocator: Allocator) !User {
         return User{
+            .allocator = allocator,
             .id = if (self.id) |id| try allocator.dupe(u8, id) else null,
             .username = if (self.username) |username| try allocator.dupe(u8, username) else null,
             .email = if (self.email) |email| try allocator.dupe(u8, email) else null,
