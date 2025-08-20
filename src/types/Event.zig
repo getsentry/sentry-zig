@@ -832,12 +832,12 @@ pub const Event = struct {
         };
     }
 
-    /// Create an Event from an error with optional stack trace
-    pub fn fromError(allocator: std.mem.Allocator, err: anyerror, err_trace: ?*std.builtin.StackTrace) Event {
+    /// Create an Event from an error with automatic stack trace capture
+    pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
         const sentry = @import("utils");
 
         // Try to collect error trace if available
-        const stacktrace = sentry.stack_trace.collectErrorTrace(allocator, err_trace) catch null;
+        const stacktrace = sentry.stack_trace.collectErrorTrace(allocator, @errorReturnTrace()) catch null;
 
         // Get error name
         const error_name = @errorName(err);
@@ -849,14 +849,10 @@ pub const Event = struct {
             .module = null,
             .thread_id = null,
             .stacktrace = stacktrace,
-            .mechanism = if (err_trace != null) blk: {
-                const mech = allocator.create(Mechanism) catch break :blk null;
-                mech.* = Mechanism{
-                    .type = allocator.dupe(u8, "generic") catch "generic",
-                    .handled = false,
-                };
-                break :blk mech.*;
-            } else null,
+            .mechanism = Mechanism{
+                .type = allocator.dupe(u8, "generic") catch "generic",
+                .handled = false,
+            },
         };
 
         return Event{

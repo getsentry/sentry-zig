@@ -39,8 +39,8 @@ pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     return captureEvent(event);
 }
 
-pub fn captureError(allocator: Allocator, err: anyerror, err_trace: ?*std.builtin.StackTrace) !?EventId {
-    const event = Event.fromError(allocator, err, err_trace);
+pub fn captureError(allocator: Allocator, err: anyerror) !?EventId {
+    const event = Event.fromError(allocator, err);
     return captureEvent(event);
 }
 
