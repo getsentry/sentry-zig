@@ -277,26 +277,37 @@ test "panic_handler: send callback is invoked with created event" {
 }
 
 // Dummy call chain to validate symbol extraction and stack capture
-fn ph_test_one() !void {
-    try ph_test_two();
+fn ph_test_one() !Event {
+    return try ph_test_two();
 }
-fn ph_test_two() !void {
-    try ph_test_three();
+fn ph_test_two() !Event {
+    return try ph_test_three();
 }
-fn ph_test_three() !void {
-    try ph_test_four();
+fn ph_test_three() !Event {
+    return try ph_test_four();
 }
-fn ph_test_four() !void {
-    const ev = createSentryEvent("chain", @returnAddress());
-    // Validate we have frames and addresses
+fn ph_test_four() !Event {
+    // Produce an event through a small call chain so that symbol names are available in frames
+    return createSentryEvent("chain", @returnAddress());
+}
+
+test "panic_handler: stacktrace has frames and instruction addresses" {
+    const ev = try ph_test_one();
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
     try std.testing.expect(st.frames.len > 0);
-    // Every frame should at least have an instruction address
     for (st.frames) |f| {
         try std.testing.expect(f.instruction_addr != null);
     }
-    // Best-effort: function names should include our dummy functions (no line assertions)
+}
+
+test "panic_handler: stacktrace captures dummy function names (skip without debug info)" {
+    const debugInfo = std.debug.getSelfDebugInfo() catch null;
+    if (debugInfo == null) return error.SkipZigTest;
+
+    const ev = try ph_test_one();
+    const st = ev.exception.?.stacktrace.?;
+
     var have_one = false;
     var have_two = false;
     var have_three = false;
@@ -309,12 +320,7 @@ fn ph_test_four() !void {
             if (std.mem.eql(u8, fn_name, "ph_test_four")) have_four = true;
         }
     }
-    // Do not assert order or line numbers; only presence of at least three frames in chain
-    try std.testing.expect(have_one and have_two and have_three);
-}
-
-test "panic_handler: stacktrace captures dummy function names (no line asserts)" {
-    try ph_test_one();
+    try std.testing.expect(have_one and have_two and have_three and have_four);
 }
 
 // Test-only globals and callback
