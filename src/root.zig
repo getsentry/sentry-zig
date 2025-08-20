@@ -50,6 +50,9 @@ pub fn captureMessage(
     return captureEvent(event);
 }
 
-test "test transport" {
+test "run tests" {
+    _ = @import("scope.zig");
     _ = @import("transport.zig");
+    _ = @import("client.zig");
+    _ = @import("panic_handler.zig");
 }

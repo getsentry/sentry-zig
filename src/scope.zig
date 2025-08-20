@@ -286,7 +286,7 @@ pub const Scope = struct {
                 all_breadcrumbs[i] = crumb;
             }
             // Free the old array but not the breadcrumbs themselves
-            allocator.free(existing.values);
+            self.allocator.free(existing.values);
         }
 
         // Add scope breadcrumbs
