@@ -74,9 +74,8 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the demo application");
     run_step.dependOn(&run_exe.step);
     // Examples
-    addExample(b, target, optimize, lib, types, "panic_handler", "Panic handler example");
-    addExample(b, target, optimize, lib, types, "send_empty_envelope", "Send an empty envelope");
-    addExample(b, target, optimize, lib, types, "capture_message_demo", "Run the captureMessage demo");
+    addExample(b, target, optimize, lib, "panic_handler", "Panic handler example");
+    addExample(b, target, optimize, lib, "capture_message", "Run the captureMessage demo");
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -100,7 +99,6 @@ fn addExample(
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
     lib: *std.Build.Step.Compile,
-    types: *std.Build.Module,
     name: []const u8,
     description: []const u8,
 ) void {
@@ -111,26 +109,11 @@ fn addExample(
         .optimize = optimize,
     });
 
+    // Link the sentry_zig library as a user would
     exe.linkLibrary(lib);
-    exe.root_module.addImport("types", types);
 
-    // Create a module for src/ so examples can import from it
-    const src_mod = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    src_mod.addImport("types", types);
-    exe.root_module.addImport("sentry", src_mod);
-
-    // Add transport module for examples that need it
-    const transport_mod = b.createModule(.{
-        .root_source_file = b.path("src/transport.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    transport_mod.addImport("types", types);
-    exe.root_module.addImport("transport", transport_mod);
+    // Add sentry_zig as a module dependency (as users would do)
+    exe.root_module.addImport("sentry_zig", lib.root_module);
 
     b.installArtifact(exe);
 

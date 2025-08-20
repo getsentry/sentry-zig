@@ -8,6 +8,9 @@ pub const SentryOptions = types.SentryOptions;
 pub const Breadcrumb = types.Breadcrumb;
 pub const Dsn = types.Dsn;
 pub const Level = types.Level;
+pub const StackTrace = types.StackTrace;
+pub const Exception = types.Exception;
+pub const Frame = types.Frame;
 
 pub const SentryClient = @import("client.zig").SentryClient;
 

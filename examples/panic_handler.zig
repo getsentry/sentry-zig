@@ -1,14 +1,13 @@
 const std = @import("std");
-const types = @import("types");
-const sentry = @import("sentry");
+const sentry = @import("sentry_zig");
 
 // Top-level type aliases
-const Event = types.Event;
-const EventId = types.EventId;
-const StackTrace = types.StackTrace;
-const Level = types.Level;
-const Exception = types.Exception;
-const Frame = types.Frame;
+const Event = sentry.Event;
+const EventId = sentry.EventId;
+const StackTrace = sentry.StackTrace;
+const Level = sentry.Level;
+const Exception = sentry.Exception;
+const Frame = sentry.Frame;
 
 /// TODO: Replace with allocator from the sentry client
 const allocator = std.heap.page_allocator;
@@ -37,9 +36,7 @@ pub fn main() !void {
     };
     defer client.deinit();
 
-    std.log.info("=== Panic Handler Demo ===", .{});
-    std.log.info("This demo will trigger a panic that gets sent to Sentry", .{});
-    std.log.info("The panic handler will capture the stack trace and send it to Sentry", .{});
+    std.log.info("Panic Handler Demo - triggering panic to test Sentry integration", .{});
 
     // Trigger a panic to demonstrate the panic handler
     @panic("This is a test panic to demonstrate Sentry panic handling!");
