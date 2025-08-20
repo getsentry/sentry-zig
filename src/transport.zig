@@ -17,6 +17,8 @@ const Breadcrumbs = types.Breadcrumbs;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
 const Message = types.Message;
+const Transaction = types.Transaction;
+const Span = types.Span;
 const test_utils = @import("utils/test_utils.zig");
 
 pub const HttpTransport = struct {
@@ -87,6 +89,7 @@ pub const HttpTransport = struct {
             .{ .name = "Content-Type", .value = "application/x-sentry-envelope" },
             .{ .name = "Content-Length", .value = content_length },
             .{ .name = "X-Sentry-Auth", .value = auth_header },
+            .{ .name = "User-Agent", .value = "sentry-zig/0.1.0" },
         };
 
         var response_body = std.ArrayList(u8).init(self.allocator);
@@ -100,10 +103,14 @@ pub const HttpTransport = struct {
             .extra_headers = &headers,
             .payload = payload,
             .response_storage = .{ .dynamic = &response_body },
-        }) catch {
+        }) catch |err| {
+            std.log.err("HTTP request failed: {}", .{err});
             return TransportResult{ .response_code = 0 };
         };
+
         std.log.debug("sending payload {s}", .{payload});
+        std.log.debug("Response status: {} ({})", .{ @intFromEnum(result.status), result.status });
+        std.log.debug("Response body: {s}", .{response_body.items});
 
         return TransportResult{ .response_code = @intCast(@intFromEnum(result.status)) };
     }
@@ -141,6 +148,23 @@ pub const HttpTransport = struct {
             .header = .{
                 .type = .event,
                 .length = @intCast(data.len), // Use actual data length, not buffer length
+            },
+            .data = data,
+        };
+    }
+
+    pub fn envelopeFromTransaction(self: *HttpTransport, transaction: *const Transaction) !SentryEnvelopeItem {
+        var list = std.ArrayList(u8).init(self.allocator);
+        errdefer list.deinit();
+
+        // Serialize transaction as JSON
+        try std.json.stringify(transaction.*, .{}, list.writer());
+
+        const data = try list.toOwnedSlice();
+        return SentryEnvelopeItem{
+            .header = .{
+                .type = .transaction,
+                .length = @intCast(data.len),
             },
             .data = data,
         };

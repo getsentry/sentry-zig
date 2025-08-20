@@ -5,6 +5,8 @@ const User = @import("User.zig").User;
 const Level = @import("Level.zig").Level;
 const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
+const TraceId = @import("TraceId.zig").TraceId;
+const SpanId = @import("SpanId.zig").SpanId;
 const json_utils = @import("../utils/json_utils.zig");
 
 // Thread-local PRNG for event ID generation with counter for uniqueness
@@ -640,6 +642,11 @@ pub const Event = struct {
     fingerprint: ?[][]const u8 = null,
     errors: ?[]EventError = null,
 
+    // Tracing attributes
+    trace_id: ?TraceId = null,
+    span_id: ?SpanId = null,
+    parent_span_id: ?SpanId = null,
+
     // Core interfaces
     exception: ?Exception = null,
     message: ?Message = null,
@@ -765,6 +772,20 @@ pub const Event = struct {
         if (self.stacktrace) |stacktrace| {
             try jw.objectField("stacktrace");
             try jw.write(stacktrace);
+        }
+
+        // Tracing fields
+        if (self.trace_id) |trace_id| {
+            try jw.objectField("trace_id");
+            try jw.write(trace_id);
+        }
+        if (self.span_id) |span_id| {
+            try jw.objectField("span_id");
+            try jw.write(span_id);
+        }
+        if (self.parent_span_id) |parent_span_id| {
+            try jw.objectField("parent_span_id");
+            try jw.write(parent_span_id);
         }
 
         try jw.endObject();

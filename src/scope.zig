@@ -9,6 +9,9 @@ const Level = types.Level;
 const Event = types.Event;
 const EventId = @import("types").EventId;
 const Contexts = types.Contexts;
+const TraceId = types.TraceId;
+const SpanId = types.SpanId;
+const PropagationContext = types.PropagationContext;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -34,6 +37,9 @@ pub const Scope = struct {
     contexts: std.StringHashMap(std.StringHashMap([]const u8)),
     client: ?*SentryClient,
 
+    // Tracing context
+    propagation_context: PropagationContext,
+
     const MAX_BREADCRUMBS = 100;
 
     pub fn init(allocator: Allocator) Scope {
@@ -46,6 +52,7 @@ pub const Scope = struct {
             .breadcrumbs = ArrayList(Breadcrumb).init(allocator),
             .contexts = std.StringHashMap(std.StringHashMap([]const u8)).init(allocator),
             .client = null,
+            .propagation_context = PropagationContext.generate(),
         };
     }
 
@@ -151,6 +158,9 @@ pub const Scope = struct {
             try new_scope.contexts.put(context_key, new_context);
         }
 
+        // Copy propagation context
+        new_scope.propagation_context = self.propagation_context.clone();
+
         return new_scope;
     }
 
@@ -225,13 +235,14 @@ pub const Scope = struct {
         try self.contexts.put(owned_key, context_data);
     }
 
-    pub fn applyToEvent(self: *const Scope, event: *Event) !void {
+    fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
         try self.applyTagsToEvent(event);
         try self.applyUserToEvent(event);
         try self.applyFingerprintToEvent(event);
         try self.applyBreadcrumbsToEvent(event);
         try self.applyContextsToEvent(event);
+        self.applyTracingToEvent(event);
     }
 
     fn applyLevelToEvent(self: *const Scope, event: *Event) void {
@@ -345,6 +356,38 @@ pub const Scope = struct {
         }
     }
 
+    fn applyTracingToEvent(self: *const Scope, event: *Event) void {
+        // Apply tracing context if event doesn't already have it
+        if (event.trace_id == null) {
+            event.trace_id = self.propagation_context.trace_id;
+        }
+        if (event.span_id == null) {
+            event.span_id = self.propagation_context.span_id;
+        }
+        if (event.parent_span_id == null) {
+            event.parent_span_id = self.propagation_context.parent_span_id;
+        }
+    }
+
+    /// Set trace context (equivalent to sentry_set_trace in Native SDK)
+    pub fn setTrace(self: *Scope, trace_id: TraceId, span_id: SpanId, parent_span_id: ?SpanId) void {
+        self.propagation_context.updateFromTrace(trace_id, span_id, parent_span_id);
+    }
+
+    /// Set trace context from hex strings
+    pub fn setTraceFromHex(self: *Scope, trace_id_hex: []const u8, span_id_hex: []const u8, parent_span_id_hex: ?[]const u8) !void {
+        const trace_id = try TraceId.fromHex(trace_id_hex);
+        const span_id = try SpanId.fromHex(span_id_hex);
+        const parent_span_id = if (parent_span_id_hex) |hex| try SpanId.fromHex(hex) else null;
+
+        self.setTrace(trace_id, span_id, parent_span_id);
+    }
+
+    /// Get the current propagation context
+    pub fn getPropagationContext(self: *const Scope) PropagationContext {
+        return self.propagation_context.clone();
+    }
+
     /// Merge another scope into this one (other scope takes precedence)
     pub fn merge(self: *Scope, other: *const Scope) !void {
         // Merge level (other scope takes precedence)
@@ -385,6 +428,9 @@ pub const Scope = struct {
 
             try self.addBreadcrumb(cloned_crumb);
         }
+
+        // Merge propagation context (other scope takes precedence)
+        self.propagation_context = other.propagation_context.clone();
     }
 
     pub fn bindClient(self: *Scope, client: *SentryClient) void {
@@ -579,6 +625,24 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
     try scope.addBreadcrumb(breadcrumb);
 }
 
+/// Set trace context (equivalent to sentry_set_trace in Native SDK)
+pub fn setTrace(trace_id: TraceId, span_id: SpanId, parent_span_id: ?SpanId) !void {
+    const scope = try getIsolationScope();
+    scope.setTrace(trace_id, span_id, parent_span_id);
+}
+
+/// Set trace context from hex strings
+pub fn setTraceFromHex(trace_id_hex: []const u8, span_id_hex: []const u8, parent_span_id_hex: ?[]const u8) !void {
+    const scope = try getIsolationScope();
+    try scope.setTraceFromHex(trace_id_hex, span_id_hex, parent_span_id_hex);
+}
+
+/// Get the current propagation context
+pub fn getPropagationContext() !PropagationContext {
+    const scope = try getIsolationScope();
+    return scope.getPropagationContext();
+}
+
 // Convenience function to get the client
 pub fn getClient() ?*SentryClient {
     const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
@@ -616,7 +680,7 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 // Used for tests
-fn resetAllScopeState(allocator: std.mem.Allocator) void {
+pub fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
 

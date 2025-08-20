@@ -21,3 +21,12 @@ pub const Message = @import("types/Event.zig").Message;
 pub const SDK = @import("types/Event.zig").SDK;
 pub const SDKPackage = @import("types/Event.zig").SDKPackage;
 pub const Contexts = @import("types/Contexts.zig").Contexts;
+
+// Tracing types
+pub const TraceId = @import("types/TraceId.zig").TraceId;
+pub const SpanId = @import("types/SpanId.zig").SpanId;
+pub const PropagationContext = @import("types/PropagationContext.zig").PropagationContext;
+pub const Transaction = @import("types/Transaction.zig").Transaction;
+pub const TransactionContext = @import("types/Transaction.zig").TransactionContext;
+pub const TransactionStatus = @import("types/Transaction.zig").TransactionStatus;
+pub const Span = @import("types/Transaction.zig").Span;

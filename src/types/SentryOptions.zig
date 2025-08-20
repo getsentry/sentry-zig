@@ -10,6 +10,10 @@ pub const SentryOptions = struct {
     sample_rate: f64 = 1.0,
     send_default_pii: bool = false,
 
+    // Tracing options
+    traces_sample_rate: ?f64 = null, // null means tracing disabled, 0.0-1.0 enables tracing
+    enable_tracing: bool = false, // Explicit flag to enable tracing
+
     /// Deinitialize the options and free allocated memory.
     /// Note: environment and release strings are not freed by this method.
     /// The caller is responsible for managing the lifetime of these strings (as they are not owned by the client currently).
