@@ -328,12 +328,66 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     try std.testing.expect(have_three);
 }
 
-test "just panic" {
+test "panic_handler: stacktrace works on Windows (addresses and basic symbols)" {
     const builtin = @import("builtin");
 
+    // Only run on Windows
     if (builtin.os.tag != .windows) return error.SkipZigTest;
 
-    @panic("Oh no, i panicked and now I'm sad");
+    const debugInfo = std.debug.getSelfDebugInfo() catch null;
+    if (debugInfo == null) return error.SkipZigTest;
+
+    const ev = try ph_test_one();
+    try std.testing.expect(ev.exception != null);
+    const st = ev.exception.?.stacktrace.?;
+    try std.testing.expect(st.frames.len > 0);
+
+    // Verify we have instruction addresses (this should always work)
+    for (st.frames) |f| {
+        try std.testing.expect(f.instruction_addr != null);
+    }
+
+    // On Windows, function names might be formatted differently
+    // Look for any frames that have function names (less strict than Unix test)
+    var found_any_function_name = false;
+    for (st.frames) |f| {
+        if (f.function) |fn_name| {
+            found_any_function_name = true;
+            // Windows might prefix with "test." or format differently
+            // Just verify we got some function information
+            try std.testing.expect(fn_name.len > 0);
+        }
+    }
+
+    // Windows should be able to extract at least some function names
+    try std.testing.expect(found_any_function_name);
+}
+
+test "panic_handler: Windows function name format detection" {
+    const builtin = @import("builtin");
+
+    // Only run on Windows
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
+    const debugInfo = std.debug.getSelfDebugInfo() catch null;
+    if (debugInfo == null) return error.SkipZigTest;
+
+    const ev = try ph_test_one();
+    const st = ev.exception.?.stacktrace.?;
+
+    // Look for Windows-style function names (might be prefixed with "test.")
+    var have_ph_test = false;
+    for (st.frames) |f| {
+        if (f.function) |fn_name| {
+            // Windows might format as "test.ph_test_one" or just "ph_test_one"
+            if (std.mem.indexOf(u8, fn_name, "ph_test")) |_| {
+                have_ph_test = true;
+            }
+        }
+    }
+
+    // We should find at least one of our test functions
+    try std.testing.expect(have_ph_test);
 }
 
 // Test-only globals and callback
