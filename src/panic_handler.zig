@@ -15,17 +15,20 @@ const Frame = types.Frame;
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // If we can't get the allocator because the scope manager is not initialized,
     // we can't do anything, so we just return.
-    const allocator = scope.getAllocator() catch {
-        return;
-    };
+    if (scope.getAllocator()) |allocator| {
+        handlePanic(allocator, msg, first_trace_addr);
+    }
+
+    std.process.exit(1);
+}
+
+fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
     const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
     defer sentry_event.deinit(allocator);
 
     _ = sentry.captureEvent(sentry_event) catch |err| {
         std.debug.print("cannot capture event, {}\n", .{err});
     };
-
-    std.process.exit(1);
 }
 
 pub fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
