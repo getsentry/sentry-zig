@@ -16,7 +16,7 @@ const allocator = std.heap.page_allocator;
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     const sentry_event = createSentryEvent(msg, first_trace_addr);
 
-    _ = sentry.captureEvent(sentry_event);
+    _ = sentry.captureEvent(sentry_event, null);
 
     std.process.exit(1);
 }

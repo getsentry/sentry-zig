@@ -6,8 +6,8 @@ const User = types.User;
 const Breadcrumb = types.Breadcrumb;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
-const Event = types.Event.Event;
-const Contexts = types.Contexts.Contexts;
+const Event = types.Event;
+const Contexts = types.Contexts;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -225,7 +225,7 @@ pub const Scope = struct {
     }
 
     /// Apply scope data to an event (similar to Python's apply_to_event)
-    pub fn applyToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    pub fn applyToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         self.applyLevelToEvent(event);
         try self.applyTagsToEvent(event, allocator);
         try self.applyUserToEvent(event, allocator);
@@ -234,13 +234,13 @@ pub const Scope = struct {
         try self.applyContextsToEvent(event, allocator);
     }
 
-    fn applyLevelToEvent(self: *const Scope, event: *Event.Event) void {
+    fn applyLevelToEvent(self: *const Scope, event: *Event) void {
         if (event.level == null and self.level != .info) {
             event.level = self.level;
         }
     }
 
-    fn applyTagsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyTagsToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         if (self.tags.count() == 0) return;
 
         if (event.tags == null) {
@@ -255,13 +255,13 @@ pub const Scope = struct {
         }
     }
 
-    fn applyUserToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyUserToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         if (event.user == null and self.user != null) {
             event.user = try self.user.?.clone(allocator);
         }
     }
 
-    fn applyFingerprintToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyFingerprintToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         if (event.fingerprint == null and self.fingerprint != null) {
             var fingerprint = try allocator.alloc([]const u8, self.fingerprint.?.items.len);
             for (self.fingerprint.?.items, 0..) |fp, i| {
@@ -271,10 +271,10 @@ pub const Scope = struct {
         }
     }
 
-    fn applyBreadcrumbsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyBreadcrumbsToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         if (self.breadcrumbs.items.len == 0) return;
 
-        const Breadcrumbs = Event.Breadcrumbs;
+        const Breadcrumbs = types.Breadcrumbs;
         const existing_count = if (event.breadcrumbs) |b| b.values.len else 0;
         const total_count = existing_count + self.breadcrumbs.items.len;
 
@@ -317,11 +317,11 @@ pub const Scope = struct {
         event.breadcrumbs = Breadcrumbs{ .values = all_breadcrumbs };
     }
 
-    fn applyContextsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyContextsToEvent(self: *const Scope, event: *Event, allocator: Allocator) !void {
         if (self.contexts.count() == 0) return;
 
         if (event.contexts == null) {
-            event.contexts = Contexts.Contexts.init(allocator);
+            event.contexts = Contexts.init(allocator);
         }
 
         var context_iterator = self.contexts.iterator();
