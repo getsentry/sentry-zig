@@ -1,7 +1,5 @@
 const std = @import("std");
 const sentry = @import("root.zig");
-const panic_handler = @import("panic_handler.zig");
-pub const panic = std.debug.FullPanic(panic_handler.panic_handler);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -26,5 +24,18 @@ pub fn main() !void {
     };
     defer client.deinit();
 
-    @panic("This is a test panic to demonstrate Sentry integration!");
+    std.log.info("=== Sentry Zig SDK Demo ===", .{});
+    std.log.info("This is a basic demonstration of the Sentry Zig SDK", .{});
+    std.log.info("For more examples, run:", .{});
+    std.log.info("  zig build panic_handler", .{});
+    std.log.info("  zig build send_empty_envelope", .{});
+    std.log.info("  zig build capture_message_demo", .{});
+
+    // Capture a simple message
+    const event_id = sentry.captureMessage("Hello from Sentry Zig SDK!", .info);
+    if (event_id) |id| {
+        std.log.info("Message sent with Event ID: {s}", .{id.value});
+    } else {
+        std.log.warn("Failed to capture message", .{});
+    }
 }
