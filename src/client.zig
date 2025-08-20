@@ -18,6 +18,13 @@ const SentryEnvelopeItem = types.SentryEnvelopeItem;
 const SDKPackage = types.SDKPackage;
 const SDK = types.SDK;
 
+const DEFAULT_SDK_PACKAGES = [_]SDKPackage{
+    SDKPackage{
+        .name = "sentry-zig",
+        .version = "0.1.0",
+    },
+};
+
 pub const SentryClient = struct {
     options: SentryOptions,
     active: bool,
@@ -125,16 +132,10 @@ pub const SentryClient = struct {
 
         // Add SDK info
         if (prepared.sdk == null) {
-            var packages = [_]SDKPackage{
-                SDKPackage{
-                    .name = "sentry-zig",
-                    .version = "0.1.0",
-                },
-            };
             prepared.sdk = SDK{
                 .name = "sentry.zig",
                 .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
-                .packages = packages[0..],
+                .packages = DEFAULT_SDK_PACKAGES[0..],
             };
         }
 

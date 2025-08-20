@@ -616,7 +616,7 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 // Used for tests
-fn resetAllScopeState(allocator: std.mem.Allocator) void {
+pub fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
 
