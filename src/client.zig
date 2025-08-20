@@ -178,10 +178,9 @@ pub const SentryClient = struct {
         if (self.options.debug) {
             std.log.debug("Shutting down Sentry client", .{});
         }
-        // Cleanup options (including DSN)
-        self.options.deinit(self.allocator);
-        // TODO: additional cleanup logic
         self.close(null);
+        self.transport.deinit();
+        self.options.deinit(self.allocator);
     }
 };
 

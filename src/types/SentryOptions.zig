@@ -14,10 +14,8 @@ pub const SentryOptions = struct {
     /// Note: environment and release strings are not freed by this method.
     /// The caller is responsible for managing the lifetime of these strings (as they are not owned by the client currently).
     pub fn deinit(self: *const SentryOptions, allocator: Allocator) void {
-        _ = self;
-        _ = allocator;
-        //if (self.dsn) |*dsn| {
-        //    dsn.deinit(allocator);
-        //}
+        if (self.dsn) |dsn| {
+            dsn.deinit(allocator);
+        }
     }
 };
