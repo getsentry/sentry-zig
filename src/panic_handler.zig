@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types");
 const sentry = @import("root.zig");
+const scope = @import("scope.zig");
 const Allocator = std.mem.Allocator;
 
 // Top-level type aliases
@@ -14,7 +15,7 @@ const Frame = types.Frame;
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // If we can't get the allocator because the scope manager is not initialized,
     // we can't do anything, so we just return.
-    const allocator = sentry.getAllocator() catch {
+    const allocator = scope.getAllocator() catch {
         return;
     };
     const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
