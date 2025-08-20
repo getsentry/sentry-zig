@@ -290,21 +290,24 @@ fn ph_test_four() !void {
     for (st.frames) |f| {
         try std.testing.expect(f.instruction_addr != null);
     }
-    // Best-effort: function names should include our dummy functions (no line assertions)
-    var have_one = false;
-    var have_two = false;
-    var have_three = false;
-    var have_four = false;
-    for (st.frames) |f| {
-        if (f.function) |fn_name| {
-            if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
-            if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
-            if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
-            if (std.mem.eql(u8, fn_name, "ph_test_four")) have_four = true;
+    const debugInfo = std.debug.getSelfDebugInfo() catch null;
+    if (debugInfo) |_| {
+        // Best-effort: function names should include our dummy functions (no line assertions)
+        var have_one = false;
+        var have_two = false;
+        var have_three = false;
+        var have_four = false;
+        for (st.frames) |f| {
+            if (f.function) |fn_name| {
+                if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
+                if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
+                if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
+                if (std.mem.eql(u8, fn_name, "ph_test_four")) have_four = true;
+            }
         }
+        // Do not assert order or line numbers; only presence of at least three frames in chain
+        try std.testing.expect(have_one and have_two and have_three);
     }
-    // Do not assert order or line numbers; only presence of at least three frames in chain
-    try std.testing.expect(have_one and have_two and have_three);
 }
 
 test "panic_handler: stacktrace captures dummy function names (no line asserts)" {
