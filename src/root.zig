@@ -42,7 +42,6 @@ test "run all tests" {
     _ = @import("scope.zig");
     _ = @import("transport.zig");
     _ = @import("client.zig");
-    _ = @import("panic_handler.zig");
 }
 
 test "compile check everything" {

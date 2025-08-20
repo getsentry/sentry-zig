@@ -36,11 +36,11 @@ clean: ## Clean build artifacts and cache
 format: ## Format all Zig source files
 	@echo "Formatting source files..."
 	@zig fmt src/
-	@if [ -d "examples/" ]; then zig fmt examples/; fi
+	@zig fmt examples/
 
 check: ## Check code formatting and run linter
 	@echo "Checking code formatting..."
-	@if zig fmt --check src/ && ([ ! -d "examples/" ] || zig fmt --check examples/); then \
+	@if zig fmt --check src/ && zig fmt --check examples/; then \
 		echo "All files are properly formatted"; \
 	else \
 		echo "Some files need formatting. Run 'make format' to fix."; \
@@ -49,5 +49,20 @@ check: ## Check code formatting and run linter
 
 install: ## Install the library (build and copy to zig-out)
 	@zig build install $(ZIG_BUILD_OPTS)
+
+# Example targets
+.PHONY: examples run-panic-handler run-send-envelope run-capture-message
+examples: ## Build all examples (install only, don't run)
+	@echo "Building all examples..."
+	@zig build install $(ZIG_BUILD_OPTS)
+
+run-panic-handler: ## Run the panic handler example
+	@zig build panic_handler $(ZIG_BUILD_OPTS)
+
+run-send-envelope: ## Run the send empty envelope example
+	@zig build send_empty_envelope $(ZIG_BUILD_OPTS)
+
+run-capture-message: ## Run the capture message demo
+	@zig build capture_message_demo $(ZIG_BUILD_OPTS)
 
 all: clean format check build test ## Run complete build pipeline

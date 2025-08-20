@@ -1,6 +1,6 @@
 const std = @import("std");
 const types = @import("types");
-const sentry = @import("root.zig");
+const sentry = @import("sentry");
 
 // Top-level type aliases
 const Event = types.Event;
@@ -12,6 +12,38 @@ const Frame = types.Frame;
 
 /// TODO: Replace with allocator from the sentry client
 const allocator = std.heap.page_allocator;
+
+pub const panic = std.debug.FullPanic(panic_handler);
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator_instance = gpa.allocator();
+
+    // Initialize Sentry client with a test DSN
+    const dsn_string = "https://fd51cdec44d1cb9d27fbc9c0b7149dde@o447951.ingest.us.sentry.io/4509869908951040";
+
+    const options = sentry.SentryOptions{
+        .environment = "development",
+        .release = "1.0.0-panic-handler-demo",
+        .debug = true,
+        .sample_rate = 1.0,
+        .send_default_pii = false,
+    };
+
+    var client = sentry.init(allocator_instance, dsn_string, options) catch |err| {
+        std.log.err("Failed to initialize Sentry client: {any}", .{err});
+        return;
+    };
+    defer client.deinit();
+
+    std.log.info("=== Panic Handler Demo ===", .{});
+    std.log.info("This demo will trigger a panic that gets sent to Sentry", .{});
+    std.log.info("The panic handler will capture the stack trace and send it to Sentry", .{});
+
+    // Trigger a panic to demonstrate the panic handler
+    @panic("This is a test panic to demonstrate Sentry panic handling!");
+}
 
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     const sentry_event = createSentryEvent(msg, first_trace_addr);

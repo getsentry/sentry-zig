@@ -73,43 +73,10 @@ pub fn build(b: *std.Build) void {
     // Create a run step that can be invoked with "zig build run"
     const run_step = b.step("run", "Run the demo application");
     run_step.dependOn(&run_exe.step);
-    const exe2 = b.addExecutable(.{
-        .name = "send_empty_envelope",
-        .root_source_file = b.path("src/send_empty_envelope.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    exe2.linkLibrary(lib);
-    exe2.root_module.addImport("types", types);
-
-    b.installArtifact(exe2);
-
-    const run_cmd = b.addRunArtifact(exe2);
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const send_empty_envelope_step = b.step("send_empty_envelope", "Send an empty envelope");
-    send_empty_envelope_step.dependOn(&run_cmd.step);
-
-    // Create the capture message demo executable
-    const capture_message_exe = b.addExecutable(.{
-        .name = "capture_message_demo",
-        .root_source_file = b.path("src/capture_message_demo.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    capture_message_exe.root_module.addImport("types", types);
-
-    b.installArtifact(capture_message_exe);
-
-    const run_capture_message = b.addRunArtifact(capture_message_exe);
-    if (b.args) |args| {
-        run_capture_message.addArgs(args);
-    }
-
-    const capture_message_step = b.step("capture_message", "Run the captureMessage demo");
-    capture_message_step.dependOn(&run_capture_message.step);
+    // Examples
+    addExample(b, target, optimize, lib, types, "panic_handler", "Panic handler example");
+    addExample(b, target, optimize, lib, types, "send_empty_envelope", "Send an empty envelope");
+    addExample(b, target, optimize, lib, types, "capture_message_demo", "Run the captureMessage demo");
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
@@ -125,4 +92,53 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
+}
+
+/// Helper function to create an example executable with consistent configuration
+fn addExample(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    lib: *std.Build.Step.Compile,
+    types: *std.Build.Module,
+    name: []const u8,
+    description: []const u8,
+) void {
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_source_file = b.path(b.fmt("examples/{s}.zig", .{name})),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exe.linkLibrary(lib);
+    exe.root_module.addImport("types", types);
+
+    // Create a module for src/ so examples can import from it
+    const src_mod = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    src_mod.addImport("types", types);
+    exe.root_module.addImport("sentry", src_mod);
+
+    // Add transport module for examples that need it
+    const transport_mod = b.createModule(.{
+        .root_source_file = b.path("src/transport.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    transport_mod.addImport("types", types);
+    exe.root_module.addImport("transport", transport_mod);
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const step = b.step(name, description);
+    step.dependOn(&run_cmd.step);
 }
