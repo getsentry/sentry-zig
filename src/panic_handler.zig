@@ -288,7 +288,7 @@ fn ph_test_three() !Event {
 }
 fn ph_test_four() !Event {
     // Produce an event through a small call chain so that symbol names are available in frames
-    return createSentryEvent("chain", @returnAddress());
+    return createSentryEvent("chain", null);
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
