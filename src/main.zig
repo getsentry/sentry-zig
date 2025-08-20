@@ -26,26 +26,5 @@ pub fn main() !void {
     };
     defer client.deinit();
 
-    // Demonstrate captureMessage with different levels
-    std.log.info("Capturing messages with different levels...", .{});
-
-    _ = sentry.captureMessage("Application started successfully", .info);
-    std.log.info("Sent info message", .{});
-
-    _ = sentry.captureMessage("This is a warning message", .warning);
-    std.log.info("Sent warning message", .{});
-
-    _ = sentry.captureMessage("This is a debug message", .debug);
-    std.log.info("Sent debug message", .{});
-
-    _ = sentry.captureMessage("This is an error message", .@"error");
-    std.log.info("Sent error message", .{});
-
-    // Wait a bit to ensure messages are sent
-    std.time.sleep(std.time.ns_per_s * 2);
-
-    std.log.info("Demo completed. Check your Sentry dashboard for the messages!", .{});
-
-    // Uncomment the line below to also trigger a panic
-    // @panic("This is a test panic to demonstrate Sentry integration!");
+    @panic("This is a test panic to demonstrate Sentry integration!");
 }
