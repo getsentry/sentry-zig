@@ -15,8 +15,8 @@ threadlocal var event_id_counter: u64 = 0;
 pub const EventId = struct {
     value: [32]u8,
 
-    pub fn jsonStringify(self: EventId, _: std.json.StringifyOptions, out_stream: anytype) !void {
-        try out_stream.writeAll(&self.value);
+    pub fn jsonStringify(self: EventId, jw: anytype) !void {
+        try jw.write(self.value);
     }
 
     pub fn new() EventId {
@@ -501,6 +501,23 @@ pub const SDK = struct {
             allocator.free(packages);
         }
     }
+
+    pub fn jsonStringify(self: SDK, jw: anytype) !void {
+        try jw.beginObject();
+        try jw.objectField("name");
+        try jw.write(self.name);
+        try jw.objectField("version");
+        try jw.write(self.version);
+        if (self.integrations) |integrations| {
+            try jw.objectField("integrations");
+            try jw.write(integrations);
+        }
+        if (self.packages) |packages| {
+            try jw.objectField("packages");
+            try jw.write(packages);
+        }
+        try jw.endObject();
+    }
 };
 
 /// SDK package
@@ -646,7 +663,7 @@ pub const Event = struct {
 
         // Required fields
         try jw.objectField("event_id");
-        try jw.write(&self.event_id.value);
+        try jw.write(self.event_id.value);
         try jw.objectField("timestamp");
         try jw.write(self.timestamp);
         try jw.objectField("platform");

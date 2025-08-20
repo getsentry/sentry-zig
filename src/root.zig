@@ -39,5 +39,6 @@ pub fn captureMessage(message: []const u8, level: Level) !?EventId {
 }
 
 test "compile and test everything" {
+    _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
