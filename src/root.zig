@@ -33,6 +33,11 @@ pub fn captureEvent(event: Event) ?EventId {
     return null;
 }
 
+pub fn captureMessage(message: []const u8, level: Level) ?EventId {
+    const event = Event.fromMessage(message, level);
+    return captureEvent(event);
+}
+
 test "run all tests" {
     _ = @import("scope.zig");
     _ = @import("transport.zig");

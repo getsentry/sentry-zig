@@ -820,4 +820,15 @@ pub const Event = struct {
         if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);
         if (self.sdk) |*sdk| sdk.deinit(allocator);
     }
+
+    /// Create an Event from a message and level
+    pub fn fromMessage(message: []const u8, level: Level) Event {
+        return Event{
+            .event_id = EventId.new(),
+            .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+            .platform = "native",
+            .level = level,
+            .message = .{ .message = message },
+        };
+    }
 };

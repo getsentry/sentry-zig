@@ -92,6 +92,25 @@ pub fn build(b: *std.Build) void {
     const send_empty_envelope_step = b.step("send_empty_envelope", "Send an empty envelope");
     send_empty_envelope_step.dependOn(&run_cmd.step);
 
+    // Create the capture message demo executable
+    const capture_message_exe = b.addExecutable(.{
+        .name = "capture_message_demo",
+        .root_source_file = b.path("src/capture_message_demo.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    capture_message_exe.root_module.addImport("types", types);
+
+    b.installArtifact(capture_message_exe);
+
+    const run_capture_message = b.addRunArtifact(capture_message_exe);
+    if (b.args) |args| {
+        run_capture_message.addArgs(args);
+    }
+
+    const capture_message_step = b.step("capture_message", "Run the captureMessage demo");
+    capture_message_step.dependOn(&run_capture_message.step);
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
