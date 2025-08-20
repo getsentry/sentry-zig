@@ -6,6 +6,7 @@ const Level = @import("Level.zig").Level;
 const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
 const json_utils = @import("../utils/json_utils.zig");
+const utils = @import("utils");
 
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
@@ -851,10 +852,8 @@ pub const Event = struct {
 
     /// Create an Event from an error with automatic stack trace capture
     pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
-        const sentry = @import("utils");
-
         // Try to collect error trace if available
-        const stacktrace = sentry.stack_trace.collectErrorTrace(allocator, @errorReturnTrace()) catch null;
+        const stacktrace = utils.stack_trace.collectErrorTrace(allocator, @errorReturnTrace()) catch null;
 
         // Get error name
         const error_name = @errorName(err);
