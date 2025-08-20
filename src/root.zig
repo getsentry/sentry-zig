@@ -45,5 +45,6 @@ pub fn captureError(allocator: Allocator, err: anyerror) !?EventId {
 }
 
 test "compile and test everything" {
+    _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

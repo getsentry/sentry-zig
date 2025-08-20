@@ -11,17 +11,24 @@ const Level = types.Level;
 const Exception = types.Exception;
 const Frame = types.Frame;
 
-/// TODO: Replace with allocator from the sentry client
-const allocator = std.heap.page_allocator;
-
 pub fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    const sentry_event = createSentryEvent(msg, first_trace_addr);
+    // If we can't get the allocator because the scope manager is not initialized,
+    // we can't do anything, so we just return.
+    if (scope.getAllocator()) |allocator| {
+        handlePanic(allocator, msg, first_trace_addr);
+    } else |_| {
+        // We can't do anything if we have no allocator.
+    }
+
+    std.process.exit(1);
+}
+
+fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
+    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
 
     _ = sentry.captureEvent(sentry_event) catch |err| {
         std.debug.print("cannot capture event, {}\n", .{err});
     };
-
-    std.process.exit(1);
 }
 
 pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
@@ -80,10 +87,10 @@ fn createMinimalEvent(msg: []const u8) Event {
 }
 
 // Testable send callback plumbing
-pub const SendCallback = *const fn (Event) void;
+const SendCallback = *const fn (Event) void;
 var send_callback: ?SendCallback = null;
 
-pub fn setSendCallback(cb: SendCallback) void {
+fn setSendCallback(cb: SendCallback) void {
     send_callback = cb;
 }
 
@@ -92,19 +99,24 @@ fn sendToSentry(event: Event) void {
 }
 
 // Helper for tests: same as panic_handler but without process exit
-pub fn panic_handler_test_entry(msg: []const u8, first_trace_addr: ?usize) void {
-    const sentry_event = createSentryEvent(msg, first_trace_addr);
+fn panic_handler_test_entry(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
+    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
     sendToSentry(sentry_event);
 }
 
 test "panic_handler: send callback is invoked with created event" {
+    const allocator = std.testing.allocator;
+
     // test-state globals and callback
     test_send_called = false;
     test_send_captured_msg = null;
     setSendCallback(testSendCb);
 
     const test_msg = "unit-test-message";
-    panic_handler_test_entry(test_msg, @returnAddress());
+    var sentry_event = createSentryEvent(allocator, test_msg, @returnAddress());
+    defer sentry_event.deinit(allocator);
+
+    sendToSentry(sentry_event);
 
     try std.testing.expect(test_send_called);
     try std.testing.expect(test_send_captured_msg != null);
@@ -122,13 +134,17 @@ fn ph_test_three() !Event {
     return try ph_test_four();
 }
 fn ph_test_four() !Event {
+    const allocator = std.testing.allocator;
     // Produce an event through a small call chain so that symbol names are available in frames
     const stacktrace = try stack_trace.collectStackTrace(allocator, @returnAddress());
     return createEventWithStacktrace("chain", stacktrace);
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
     try std.testing.expect(st.frames.len > 0);
@@ -146,7 +162,10 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     const st = ev.exception.?.stacktrace.?;
 
     var have_one = false;
@@ -173,7 +192,10 @@ test "panic_handler: stacktrace works on Windows (addresses and basic symbols)" 
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
     try std.testing.expect(st.frames.len > 0);
@@ -208,7 +230,10 @@ test "panic_handler: Windows function name format detection" {
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     const st = ev.exception.?.stacktrace.?;
 
     // Look for Windows-style function names (might be prefixed with "test.")
