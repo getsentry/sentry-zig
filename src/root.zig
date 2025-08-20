@@ -28,9 +28,6 @@ pub fn captureEvent(event: Event) ?EventId {
     return try scopes.captureEvent(event);
 }
 
-test "run tests" {
-    _ = @import("scope.zig");
-    _ = @import("transport.zig");
-    _ = @import("client.zig");
-    _ = @import("panic_handler.zig");
+test "compile check everything" {
+    std.testing.refAllDeclsRecursive(@This());
 }
