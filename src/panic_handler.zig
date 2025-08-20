@@ -17,7 +17,7 @@ pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // we can't do anything, so we just return.
     if (scope.getAllocator()) |allocator| {
         handlePanic(allocator, msg, first_trace_addr);
-    }
+    } else |_| {}
 
     std.process.exit(1);
 }
