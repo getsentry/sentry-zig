@@ -12,7 +12,7 @@ pub const SentryEnvelopeHeader = struct {
         allocator: Allocator,
         event_id: EventId,
     ) !SentryEnvelopeHeader {
-        const event_id_copy = if (event_id) |event_id_capture| try std.mem.dupe(allocator, u8, event_id_capture);
+        const event_id_copy = if (event_id) |event_id_capture| try allocator.dupe(u8, event_id_capture);
 
         return .{
             .allocator = allocator,

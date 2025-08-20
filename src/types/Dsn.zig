@@ -10,6 +10,18 @@ pub const Dsn = struct {
     project_id: []const u8,
     path: []const u8,
 
+    pub fn clone(self: Dsn, allocator: Allocator) !@This() {
+        return .{
+            .scheme = try allocator.dupe(u8, self.scheme),
+            .host = try allocator.dupe(u8, self.host),
+            .port = self.port,
+            .public_key = try allocator.dupe(u8, self.public_key),
+            .secret_key = if (self.secret_key) |secret_key| try allocator.dupe(u8, secret_key) else null,
+            .project_id = try allocator.dupe(u8, self.project_id),
+            .path = try allocator.dupe(u8, self.path),
+        };
+    }
+
     /// Parse a DSN string into its components
     pub fn parse(allocator: Allocator, dsn_string: []const u8) !Dsn {
         var dsn = dsn_string;

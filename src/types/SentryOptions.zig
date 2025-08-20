@@ -21,9 +21,9 @@ pub const SentryOptions = struct {
         sample_rate: f64,
         send_default_pii: bool,
     ) !@This() {
-        const dsn_copy = if (dsn) |dsn_capture| try std.mem.dupe(allocator, u8, dsn_capture);
-        const environment_copy = if (environment) |env_capture| try std.mem.dupe(allocator, u8, env_capture);
-        const release_copy = if (release) |release_capture| try std.mem.dupe(allocator, u8, release_capture);
+        const dsn_copy = if (dsn) |dsn_capture| try dsn_capture.clone(allocator) else null;
+        const environment_copy = if (environment) |env_capture| try allocator.dupe(u8, env_capture) else null;
+        const release_copy = if (release) |release_capture| try allocator.dupe(u8, release_capture) else null;
 
         return .{
             .allocator = allocator,

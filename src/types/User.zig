@@ -20,11 +20,11 @@ pub const User = struct {
         name: ?[]const u8,
         ip_address: ?[]const u8,
     ) !@This() {
-        const id_copy = if (id) |id_capture| try std.mem.dupe(allocator, u8, id_capture);
-        const username_copy = if (username) |username_capture| try std.mem.dupe(allocator, u8, username_capture);
-        const email_copy = if (email) |email_capture| try std.mem.dupe(allocator, u8, email_capture);
-        const name_copy = if (name) |name_capture| try std.mem.dupe(allocator, u8, name_capture);
-        const ip_address_copy = if (ip_address) |ip_address_capture| try std.mem.dupe(allocator, u8, ip_address_capture);
+        const id_copy = if (id) |id_capture| try allocator.dupe(u8, id_capture);
+        const username_copy = if (username) |username_capture| try allocator.dupe(u8, username_capture);
+        const email_copy = if (email) |email_capture| try allocator.dupe(u8, email_capture);
+        const name_copy = if (name) |name_capture| try allocator.dupe(u8, name_capture);
+        const ip_address_copy = if (ip_address) |ip_address_capture| try allocator.dupe(u8, ip_address_capture);
 
         return .{
             .allocator = allocator,
