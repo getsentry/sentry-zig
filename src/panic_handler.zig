@@ -31,7 +31,7 @@ fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) 
     };
 }
 
-pub fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
+fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
     // Create ArrayList to dynamically grow frames - no size limit!
     var frames_list = std.ArrayList(Frame).init(allocator);
 
@@ -255,10 +255,10 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
 }
 
 // Testable send callback plumbing
-pub const SendCallback = *const fn (Event) void;
+const SendCallback = *const fn (Event) void;
 var send_callback: ?SendCallback = null;
 
-pub fn setSendCallback(cb: SendCallback) void {
+fn setSendCallback(cb: SendCallback) void {
     send_callback = cb;
 }
 
@@ -267,7 +267,7 @@ fn sendToSentry(event: Event) void {
 }
 
 // Helper for tests: same as panic_handler but without process exit
-pub fn panic_handler_test_entry(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
+fn panic_handler_test_entry(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
     const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
     sendToSentry(sentry_event);
 }
