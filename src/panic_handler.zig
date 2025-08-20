@@ -12,7 +12,7 @@ const Level = types.Level;
 const Exception = types.Exception;
 const Frame = types.Frame;
 
-pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
+pub fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // If we can't get the allocator because the scope manager is not initialized,
     // we can't do anything, so we just return.
     if (scope.getAllocator()) |allocator| {
