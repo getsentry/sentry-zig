@@ -24,20 +24,8 @@ pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*Se
     return client;
 }
 
-pub fn captureEvent(event: Event) ?EventId {
-    const client = scopes.getClient() orelse return null;
-    const event_id_bytes = client.captureEvent(event) catch return null;
-    if (event_id_bytes) |bytes| {
-        return EventId{ .value = bytes };
-    }
-    return null;
-}
-
-test "run all tests" {
-    _ = @import("scope.zig");
-    _ = @import("transport.zig");
-    _ = @import("client.zig");
-    _ = @import("panic_handler.zig");
+pub fn captureEvent(event: Event) !?EventId {
+    return try scopes.captureEvent(event);
 }
 
 test "compile check everything" {

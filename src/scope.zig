@@ -6,8 +6,9 @@ const User = types.User;
 const Breadcrumb = types.Breadcrumb;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
-const Event = types.Event.Event;
-const Contexts = types.Contexts.Contexts;
+const Event = types.Event;
+const EventId = @import("types").EventId;
+const Contexts = types.Contexts;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -224,61 +225,60 @@ pub const Scope = struct {
         try self.contexts.put(owned_key, context_data);
     }
 
-    /// Apply scope data to an event (similar to Python's apply_to_event)
-    pub fn applyToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    pub fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
-        try self.applyTagsToEvent(event, allocator);
-        try self.applyUserToEvent(event, allocator);
-        try self.applyFingerprintToEvent(event, allocator);
-        try self.applyBreadcrumbsToEvent(event, allocator);
-        try self.applyContextsToEvent(event, allocator);
+        try self.applyTagsToEvent(event);
+        try self.applyUserToEvent(event);
+        try self.applyFingerprintToEvent(event);
+        try self.applyBreadcrumbsToEvent(event);
+        try self.applyContextsToEvent(event);
     }
 
-    fn applyLevelToEvent(self: *const Scope, event: *Event.Event) void {
+    fn applyLevelToEvent(self: *const Scope, event: *Event) void {
         if (event.level == null and self.level != .info) {
             event.level = self.level;
         }
     }
 
-    fn applyTagsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyTagsToEvent(self: *const Scope, event: *Event) !void {
         if (self.tags.count() == 0) return;
 
         if (event.tags == null) {
-            event.tags = std.StringHashMap([]const u8).init(allocator);
+            event.tags = std.StringHashMap([]const u8).init(self.allocator);
         }
 
         var tag_iterator = self.tags.iterator();
         while (tag_iterator.next()) |entry| {
-            const key = try allocator.dupe(u8, entry.key_ptr.*);
-            const value = try allocator.dupe(u8, entry.value_ptr.*);
+            const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            const value = try self.allocator.dupe(u8, entry.value_ptr.*);
             try event.tags.?.put(key, value);
         }
     }
 
-    fn applyUserToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyUserToEvent(self: *const Scope, event: *Event) !void {
         if (event.user == null and self.user != null) {
-            event.user = try self.user.?.clone(allocator);
+            event.user = try self.user.?.clone(self.allocator);
         }
     }
 
-    fn applyFingerprintToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyFingerprintToEvent(self: *const Scope, event: *Event) !void {
         if (event.fingerprint == null and self.fingerprint != null) {
-            var fingerprint = try allocator.alloc([]const u8, self.fingerprint.?.items.len);
+            var fingerprint = try self.allocator.alloc([]const u8, self.fingerprint.?.items.len);
             for (self.fingerprint.?.items, 0..) |fp, i| {
-                fingerprint[i] = try allocator.dupe(u8, fp);
+                fingerprint[i] = try self.allocator.dupe(u8, fp);
             }
             event.fingerprint = fingerprint;
         }
     }
 
-    fn applyBreadcrumbsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyBreadcrumbsToEvent(self: *const Scope, event: *Event) !void {
         if (self.breadcrumbs.items.len == 0) return;
 
-        const Breadcrumbs = Event.Breadcrumbs;
+        const Breadcrumbs = types.Breadcrumbs;
         const existing_count = if (event.breadcrumbs) |b| b.values.len else 0;
         const total_count = existing_count + self.breadcrumbs.items.len;
 
-        var all_breadcrumbs = try allocator.alloc(Breadcrumb, total_count);
+        var all_breadcrumbs = try self.allocator.alloc(Breadcrumb, total_count);
 
         // Copy existing breadcrumbs if any
         if (event.breadcrumbs) |existing| {
@@ -293,20 +293,20 @@ pub const Scope = struct {
         for (self.breadcrumbs.items, existing_count..) |crumb, i| {
             // Clone the breadcrumb
             var cloned_crumb = Breadcrumb{
-                .message = try allocator.dupe(u8, crumb.message),
+                .message = try self.allocator.dupe(u8, crumb.message),
                 .type = crumb.type,
                 .level = crumb.level,
-                .category = if (crumb.category) |cat| try allocator.dupe(u8, cat) else null,
+                .category = if (crumb.category) |cat| try self.allocator.dupe(u8, cat) else null,
                 .timestamp = crumb.timestamp,
                 .data = null,
             };
 
             if (crumb.data) |data| {
-                cloned_crumb.data = std.StringHashMap([]const u8).init(allocator);
+                cloned_crumb.data = std.StringHashMap([]const u8).init(self.allocator);
                 var data_iterator = data.iterator();
                 while (data_iterator.next()) |entry| {
-                    const key = try allocator.dupe(u8, entry.key_ptr.*);
-                    const value = try allocator.dupe(u8, entry.value_ptr.*);
+                    const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+                    const value = try self.allocator.dupe(u8, entry.value_ptr.*);
                     try cloned_crumb.data.?.put(key, value);
                 }
             }
@@ -317,11 +317,11 @@ pub const Scope = struct {
         event.breadcrumbs = Breadcrumbs{ .values = all_breadcrumbs };
     }
 
-    fn applyContextsToEvent(self: *const Scope, event: *Event.Event, allocator: Allocator) !void {
+    fn applyContextsToEvent(self: *const Scope, event: *Event) !void {
         if (self.contexts.count() == 0) return;
 
         if (event.contexts == null) {
-            event.contexts = Contexts.Contexts.init(allocator);
+            event.contexts = Contexts.init(self.allocator);
         }
 
         var context_iterator = self.contexts.iterator();
@@ -331,13 +331,13 @@ pub const Scope = struct {
                 continue; // Event contexts take precedence
             }
 
-            const context_key = try allocator.dupe(u8, entry.key_ptr.*);
-            var context_data = std.StringHashMap([]const u8).init(allocator);
+            const context_key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            var context_data = std.StringHashMap([]const u8).init(self.allocator);
 
             var inner_iterator = entry.value_ptr.iterator();
             while (inner_iterator.next()) |inner_entry| {
-                const key = try allocator.dupe(u8, inner_entry.key_ptr.*);
-                const value = try allocator.dupe(u8, inner_entry.value_ptr.*);
+                const key = try self.allocator.dupe(u8, inner_entry.key_ptr.*);
+                const value = try self.allocator.dupe(u8, inner_entry.value_ptr.*);
                 try context_data.put(key, value);
             }
 
@@ -581,18 +581,37 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
 
 // Convenience function to get the client
 pub fn getClient() ?*SentryClient {
-    var scope = getCurrentScope() catch return null;
-    if (scope.client) |client| {
-        return client;
+    const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
+    inline for (scope_getters) |getter| {
+        if (getter() catch null) |scope| {
+            if (scope.client) |client| {
+                return client;
+            }
+        }
     }
-    scope = getIsolationScope() catch return null;
-    if (scope.client) |client| {
-        return client;
+    return null;
+}
+
+pub fn captureEvent(event: Event) !?EventId {
+    const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
+    var client: ?*SentryClient = null;
+    var event_copy = event;
+
+    inline for (scope_getters) |getter| {
+        if (getter() catch null) |scope| {
+            try scope.applyToEvent(&event_copy);
+            if (scope.client) |scopeClient| {
+                client = scopeClient;
+            }
+        }
     }
-    scope = getGlobalScope() catch return null;
-    if (scope.client) |client| {
-        return client;
+
+    if (client) |c| {
+        if (try c.captureEvent(event_copy)) |event_id_bytes| {
+            return EventId{ .value = event_id_bytes };
+        }
     }
+
     return null;
 }
 
