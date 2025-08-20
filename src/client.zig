@@ -18,7 +18,7 @@ const SentryEnvelopeItem = types.SentryEnvelopeItem;
 const SDKPackage = types.SDKPackage;
 const SDK = types.SDK;
 
-const DEFAULT_SDK_PACKAGES = [_]SDKPackage{
+var DEFAULT_SDK_PACKAGES = [_]SDKPackage{
     SDKPackage{
         .name = "sentry-zig",
         .version = "0.1.0",
