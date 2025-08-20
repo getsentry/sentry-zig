@@ -8,7 +8,7 @@ pub fn main() !void {
 
     // Initialize Sentry client with a test DSN
     // Replace with your actual Sentry DSN
-    const dsn_string = "https://7c8df91eb303287546fa8eb371154766@o447951.ingest.us.sentry.io/4509869908951040";
+    const dsn_string = "https://fd51cdec44d1cb9d27fbc9c0b7149dde@o447951.ingest.us.sentry.io/4509869908951040";
 
     const options = sentry.SentryOptions{
         .environment = "development",

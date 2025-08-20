@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const types = @import("types");
 const Transport = @import("transport.zig").HttpTransport;
+const scope = @import("scope.zig");
 
 // Top-level type aliases
 const Dsn = types.Dsn;
@@ -14,6 +15,8 @@ const SentryOptions = types.SentryOptions;
 const SentryEnvelope = types.SentryEnvelope;
 const SentryEnvelopeHeader = types.SentryEnvelopeHeader;
 const SentryEnvelopeItem = types.SentryEnvelopeItem;
+const SDKPackage = types.SDKPackage;
+const SDK = types.SDK;
 
 pub const SentryClient = struct {
     options: SentryOptions,
@@ -120,7 +123,20 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-        // Skip SDK info for now to simplify compilation
+        // Add SDK info
+        if (prepared.sdk == null) {
+            var packages = [_]SDKPackage{
+                SDKPackage{
+                    .name = "sentry-zig",
+                    .version = "0.1.0",
+                },
+            };
+            prepared.sdk = SDK{
+                .name = "sentry.zig",
+                .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
+                .packages = packages[0..],
+            };
+        }
 
         // Add environment from options
         if (prepared.environment == null and self.options.environment != null) {
