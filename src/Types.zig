@@ -18,3 +18,6 @@ pub const Exception = @import("types/Event.zig").Exception;
 pub const Frame = @import("types/Event.zig").Frame;
 pub const Breadcrumbs = @import("types/Event.zig").Breadcrumbs;
 pub const Message = @import("types/Event.zig").Message;
+pub const SDK = @import("types/Event.zig").SDK;
+pub const SDKPackage = @import("types/Event.zig").SDKPackage;
+pub const Contexts = @import("types/Contexts.zig").Contexts;
