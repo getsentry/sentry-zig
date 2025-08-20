@@ -7,6 +7,7 @@ const Breadcrumb = types.Breadcrumb;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
 const Event = types.Event;
+const EventId = @import("types").EventId;
 const Contexts = types.Contexts;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
@@ -224,7 +225,6 @@ pub const Scope = struct {
         try self.contexts.put(owned_key, context_data);
     }
 
-    /// Apply scope data to an event (similar to Python's apply_to_event)
     pub fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
         try self.applyTagsToEvent(event);
@@ -581,19 +581,32 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
 
 // Convenience function to get the client
 pub fn getClient() ?*SentryClient {
-    var scope = getCurrentScope() catch return null;
-    if (scope.client) |client| {
-        return client;
-    }
-    scope = getIsolationScope() catch return null;
-    if (scope.client) |client| {
-        return client;
-    }
-    scope = getGlobalScope() catch return null;
-    if (scope.client) |client| {
-        return client;
+    const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
+    inline for (scope_getters) |getter| {
+        if (getter() catch null) |scope| {
+            if (scope.client) |client| {
+                return client;
+            }
+        }
     }
     return null;
+}
+
+pub fn captureEvent(event: Event) !?EventId{
+    const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
+    var client: *SentryClient = null;
+
+    inline for (scope_getters) |getter| {
+        if (getter() catch null) |scope| {
+            if (scope) {
+                scope.applyToEvent();
+                if (scope.client) |scopeClient| {
+                   client = scopeClient;
+                }
+            }
+        }
+    }
+    client.captureEvent(event);
 }
 
 // Used for tests

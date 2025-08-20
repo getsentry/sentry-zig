@@ -62,7 +62,7 @@ pub const SentryClient = struct {
     }
 
     /// Capture an event and return its ID if successful
-    pub fn captureEvent(self: *SentryClient, event: Event, event_scope: ?*scope.Scope) !?[32]u8 {
+    pub fn captureEvent(self: *SentryClient, event: Event) !?[32]u8 {
         if (!self.isActive()) {
             if (self.options.debug) {
                 std.log.debug("Client is not active (no DSN configured)", .{});
@@ -70,12 +70,7 @@ pub const SentryClient = struct {
             return null;
         }
 
-        var prepared_event = try self.prepareEvent(event);
-
-        // Apply scope data to the event if provided
-        if (event_scope) |event_scope_ptr| {
-            try event_scope_ptr.applyToEvent(&prepared_event, self.allocator);
-        }
+        const prepared_event = try self.prepareEvent(event);
 
         if (self.options.debug) {
             std.log.debug("Capturing event with ID: {s}", .{prepared_event.event_id.value});
@@ -101,7 +96,7 @@ pub const SentryClient = struct {
     }
 
     /// Capture an exception
-    pub fn captureError(self: *SentryClient, exception: Exception, event_scope: ?*scope.Scope) !?[32]u8 {
+    pub fn captureError(self: *SentryClient, exception: Exception) !?[32]u8 {
         const event = Event{
             .event_id = EventId.new(),
             .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
@@ -109,11 +104,11 @@ pub const SentryClient = struct {
             .exception = exception,
         };
 
-        return self.captureEvent(event, event_scope);
+        return self.captureEvent(event);
     }
 
     /// Capture a simple message
-    pub fn captureMessage(self: *SentryClient, message: []const u8, event_scope: ?*scope.Scope) !?[32]u8 {
+    pub fn captureMessage(self: *SentryClient, message: []const u8) !?[32]u8 {
         const event = Event{
             .event_id = EventId.new(),
             .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
@@ -121,7 +116,7 @@ pub const SentryClient = struct {
             .message = .{ .message = message },
         };
 
-        return self.captureEvent(event, event_scope);
+        return self.captureEvent(event);
     }
 
     /// Prepare an event by adding client metadata
@@ -228,7 +223,7 @@ test "capture message" {
     var client = try SentryClient.init(allocator, "https://key@sentry.io/1", options);
     defer client.deinit();
 
-    const event_id = try client.captureMessage("Test message", null);
+    const event_id = try client.captureMessage("Test message");
     try std.testing.expect(event_id != null);
 }
 
@@ -243,7 +238,7 @@ test "inactive client returns null" {
 
     try std.testing.expect(!client.isActive());
 
-    const event_id = try client.captureMessage("Test message", null);
+    const event_id = try client.captureMessage("Test message");
     try std.testing.expect(event_id == null);
 }
 
@@ -261,7 +256,7 @@ test "capture exception" {
         .module = "main",
     };
 
-    const event_id = try client.captureError(exception, null);
+    const event_id = try client.captureError(exception);
     try std.testing.expect(event_id != null);
 }
 

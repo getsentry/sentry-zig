@@ -24,31 +24,8 @@ pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*Se
     return client;
 }
 
-pub fn captureEvent(event: Event, event_scope: ?*scopes.Scope) ?EventId {
-    const client = scopes.getClient() orelse return null;
-    const event_id_bytes = client.captureEvent(event, event_scope) catch return null;
-    if (event_id_bytes) |bytes| {
-        return EventId{ .value = bytes };
-    }
-    return null;
-}
-
-pub fn captureError(err: anyerror, event_scope: ?*scopes.Scope) ?EventId {
-    const global_scope = scopes.getGlobalScope() catch return null;
-    const event = Event.fromError(global_scope.allocator, err);
-    defer event.deinit(global_scope.allocator);
-    return captureEvent(event, event_scope);
-}
-
-pub fn captureMessage(
-    message: []const u8,
-    level: Level,
-    event_scope: ?*scopes.Scope,
-) ?EventId {
-    const global_scope = scopes.getGlobalScope() catch return null;
-    const event = Event.fromMessage(global_scope.allocator, message, level);
-    defer event.deinit(global_scope.allocator);
-    return captureEvent(event, event_scope);
+pub fn captureEvent(event: Event) ?EventId {
+    return try scopes.captureEvent(event);
 }
 
 test "run tests" {
