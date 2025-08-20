@@ -17,14 +17,15 @@ pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     // we can't do anything, so we just return.
     if (scope.getAllocator()) |allocator| {
         handlePanic(allocator, msg, first_trace_addr);
-    } else |_| {}
+    } else |_| {
+        // We can't do anything if we have no allocator.
+    }
 
     std.process.exit(1);
 }
 
 fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
     const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
-    defer sentry_event.deinit(allocator);
 
     _ = sentry.captureEvent(sentry_event) catch |err| {
         std.debug.print("cannot capture event, {}\n", .{err});
