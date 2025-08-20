@@ -16,9 +16,11 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Examples:"
-	@echo "  make test     - Run all tests"
-	@echo "  make build    - Build the library"
-	@echo "  make clean    - Clean build artifacts"
+	@echo "  make test                - Run all tests"
+	@echo "  make build               - Build the library"
+	@echo "  make clean               - Clean build artifacts"
+	@echo "  make run-panic-handler   - Run the panic handler example"
+	@echo "  make run-capture-message - Run the capture message example"
 
 test: ## Run all tests with detailed output
 	@echo "Running tests..."
@@ -51,7 +53,7 @@ install: ## Install the library (build and copy to zig-out)
 	@zig build install $(ZIG_BUILD_OPTS)
 
 # Example targets
-.PHONY: examples run-panic-handler run-send-envelope run-capture-message
+.PHONY: examples run-panic-handler run-capture-message
 examples: ## Build all examples (install only, don't run)
 	@echo "Building all examples..."
 	@zig build install $(ZIG_BUILD_OPTS)
@@ -59,10 +61,7 @@ examples: ## Build all examples (install only, don't run)
 run-panic-handler: ## Run the panic handler example
 	@zig build panic_handler $(ZIG_BUILD_OPTS)
 
-run-send-envelope: ## Run the send empty envelope example
-	@zig build send_empty_envelope $(ZIG_BUILD_OPTS)
-
-run-capture-message: ## Run the capture message demo
-	@zig build capture_message_demo $(ZIG_BUILD_OPTS)
+run-capture-message: ## Run the capture message example
+	@zig build capture_message $(ZIG_BUILD_OPTS)
 
 all: clean format check build test ## Run complete build pipeline
