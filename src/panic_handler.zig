@@ -1,7 +1,9 @@
 const std = @import("std");
 const types = @import("types");
+const scope = @import("scope.zig");
 const sentry = @import("root.zig");
 const stack_trace = @import("utils/stack_trace.zig");
+const Allocator = std.mem.Allocator;
 
 // Top-level type aliases
 const Event = types.Event;
@@ -31,17 +33,17 @@ fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) 
     };
 }
 
-pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
+pub fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
     const stacktrace = stack_trace.collectStackTrace(allocator, first_trace_addr) catch |err| {
         std.debug.print("Warning: Failed to collect stack trace: {}\n", .{err});
         return createMinimalEvent(msg);
     };
 
-    return createEventWithStacktrace(msg, stacktrace);
+    return createEventWithStacktrace(allocator, msg, stacktrace);
 }
 
 /// Create a Sentry event with the provided stacktrace
-fn createEventWithStacktrace(msg: []const u8, stacktrace: StackTrace) Event {
+fn createEventWithStacktrace(allocator: Allocator, msg: []const u8, stacktrace: StackTrace) Event {
     // Create exception
     const exception = Exception{
         .type = allocator.dupe(u8, "panic") catch "panic",
@@ -137,7 +139,7 @@ fn ph_test_four() !Event {
     const allocator = std.testing.allocator;
     // Produce an event through a small call chain so that symbol names are available in frames
     const stacktrace = try stack_trace.collectStackTrace(allocator, @returnAddress());
-    return createEventWithStacktrace("chain", stacktrace);
+    return createEventWithStacktrace(allocator, "chain", stacktrace);
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
