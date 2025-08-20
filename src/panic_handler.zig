@@ -318,7 +318,9 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
             if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
         }
     }
-    try std.testing.expect(have_one and have_two and have_three);
+    try std.testing.expect(have_one);
+    try std.testing.expect(have_two);
+    try std.testing.expect(have_three);
 }
 
 // Test-only globals and callback
