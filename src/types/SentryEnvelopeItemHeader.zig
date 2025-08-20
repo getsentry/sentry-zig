@@ -24,7 +24,6 @@ pub const SentryEnvelopeItemHeader = struct {
         platform: ?[]const u8,
         item_count: ?i64,
     ) !@This() {
-        const type_copy = if (@"type") |type_capture| try allocator.dupe(u8, type_capture);
         const content_type_copy = if (content_type) |content_type_capture| try allocator.dupe(u8, content_type_capture);
         const file_name_copy = if (file_name) |file_name_capture| try allocator.dupe(u8, file_name_capture);
         const attachment_type_copy = if (attachment_type) |attachment_type_capture| try allocator.dupe(u8, attachment_type_capture);
@@ -32,7 +31,7 @@ pub const SentryEnvelopeItemHeader = struct {
 
         return .{
             .allocator = allocator,
-            .type = type_copy,
+            .type = @"type",
             .length = length,
             .content_type = content_type_copy,
             .file_name = file_name_copy,

@@ -15,8 +15,8 @@ pub const SentryEnvelope = struct {
         header: SentryEnvelopeHeader,
         items: []SentryEnvelopeItem,
     ) !SentryEnvelopeHeader {
-        const header_copy = if (header) |header_capture| try allocator.dupe(SentryEnvelopeHeader, header_capture);
-        const items_copy = if (items) |items_capture| try allocator.dupe(SentryEnvelopeItem, items_capture);
+        const header_copy = try allocator.dupe(SentryEnvelopeHeader, header);
+        const items_copy = try allocator.dupe(SentryEnvelopeItem, items);
 
         return .{
             .allocator = allocator,
