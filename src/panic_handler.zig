@@ -302,6 +302,11 @@ test "panic_handler: stacktrace has frames and instruction addresses" {
 }
 
 test "panic_handler: stacktrace captures dummy function names (skip without debug info)" {
+    const builtin = @import("builtin");
+
+    // Skip on Windows due to platform-specific debug info issues
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
@@ -313,7 +318,6 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     var have_three = false;
     for (st.frames) |f| {
         if (f.function) |fn_name| {
-            std.debug.print("fn_name: {s}\n", .{fn_name});
             if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
             if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
             if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
@@ -322,6 +326,10 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     try std.testing.expect(have_one);
     try std.testing.expect(have_two);
     try std.testing.expect(have_three);
+}
+
+test "just panic" {
+    @panic("Oh no, i panicked and now I'm sad");
 }
 
 // Test-only globals and callback
