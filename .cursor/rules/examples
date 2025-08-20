@@ -1,0 +1,18 @@
+## Example Organization
+When organizing examples in Zig projects:
+
+1. **Structure**: Move examples from `src/` to dedicated `examples/` folder
+2. **Build System**: 
+   - Create `addExample()` helper function in `build.zig`
+   - Each example gets proper module imports (`sentry`, `transport`, `types`)
+   - Examples should be buildable individually with `zig build <example_name>`
+3. **Makefile Integration**:
+   - Add `examples` target to build all examples (install only, don't run)
+   - Add individual `run-<example>` targets for running specific examples
+   - Mark example targets as `.PHONY`
+   - Update formatting/linting to include examples directory
+4. **Import Pattern**: Examples should use module imports, not relative paths:
+   - `@import("sentry")` for main SDK
+   - `@import("types")` for type definitions  
+   - `@import("transport")` for direct transport access
+5. **Example Requirements**: Each example needs `pub fn main()` to be executable
