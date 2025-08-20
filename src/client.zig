@@ -36,7 +36,7 @@ pub const SentryClient = struct {
             .options = opts,
             .active = opts.dsn != null,
             .allocator = allocator,
-            .transport = Transport.init(allocator, opts),
+            .transport = Transport.init(allocator, &opts),
         };
 
         if (opts.debug) {

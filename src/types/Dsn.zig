@@ -2,6 +2,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 pub const Dsn = struct {
+    allocator: ?Allocator = null,
+
     scheme: []const u8,
     host: []const u8,
     port: u16,
@@ -9,6 +11,45 @@ pub const Dsn = struct {
     secret_key: ?[]const u8,
     project_id: []const u8,
     path: []const u8,
+
+    pub fn init(
+        allocator: Allocator,
+        scheme: []const u8,
+        host: []const u8,
+        port: u16,
+        public_key: []const u8,
+        secret_key: ?[]const u8,
+        project_id: []const u8,
+        path: []const u8,
+    ) !@This() {
+        const scheme_copy = try allocator.dupe(u8, scheme);
+        const host_copy = try allocator.dupe(u8, host);
+        const public_key_copy = try allocator.dupe(u8, public_key);
+        const secret_key_copy = if (secret_key) |secret_key_capture| try allocator.dupe(u8, secret_key_capture) else null;
+        const project_id_copy = try allocator.dupe(u8, project_id);
+        const path_copy = try allocator.dupe(u8, path);
+
+        return .{
+            .allocator = allocator,
+
+            .scheme = scheme_copy,
+            .host = host_copy,
+            .port = port,
+            .public_key = public_key_copy,
+            .secret_key = secret_key_copy,
+            .project_id = project_id_copy,
+            .path = path_copy,
+        };
+    }
+
+    pub fn deinit(self: *const @This()) void {
+        if (self.allocator) |allocator| allocator.free(self.scheme);
+        if (self.allocator) |allocator| allocator.free(self.host);
+        if (self.allocator) |allocator| allocator.free(self.public_key);
+        if (self.allocator) |allocator| if (self.secret_key) |secret_key| allocator.free(secret_key);
+        if (self.allocator) |allocator| allocator.free(self.project_id);
+        if (self.allocator) |allocator| allocator.free(self.path);
+    }
 
     pub fn clone(self: Dsn, allocator: Allocator) !@This() {
         return .{
@@ -86,15 +127,16 @@ pub const Dsn = struct {
         const path = remaining[0 .. last_slash + 1]; // Include trailing slash
         const project_id_str = remaining[last_slash + 1 ..];
 
-        return Dsn{
-            .scheme = try allocator.dupe(u8, scheme),
-            .host = try allocator.dupe(u8, host),
-            .port = port,
-            .public_key = try allocator.dupe(u8, public_key),
-            .secret_key = if (secret_key) |sk| try allocator.dupe(u8, sk) else null,
-            .project_id = try allocator.dupe(u8, project_id_str),
-            .path = try allocator.dupe(u8, path),
-        };
+        return Dsn.init(
+            allocator,
+            scheme,
+            host,
+            port,
+            public_key,
+            secret_key,
+            project_id_str,
+            path,
+        );
     }
 
     pub fn getNetloc(self: *const Dsn, allocator: Allocator) ![]u8 {
@@ -129,18 +171,6 @@ pub const Dsn = struct {
                 self.project_id,
             });
         }
-    }
-
-    /// Free all allocated memory
-    pub fn deinit(self: *const Dsn, allocator: Allocator) void {
-        allocator.free(self.scheme);
-        allocator.free(self.host);
-        allocator.free(self.public_key);
-        if (self.secret_key) |sk| {
-            allocator.free(sk);
-        }
-        allocator.free(self.project_id);
-        allocator.free(self.path);
     }
 };
 
