@@ -1,6 +1,8 @@
 const std = @import("std");
 const types = @import("types");
 const sentry = @import("root.zig");
+const scope = @import("scope.zig");
+const Allocator = std.mem.Allocator;
 
 // Top-level type aliases
 const Event = types.Event;
@@ -10,20 +12,27 @@ const Level = types.Level;
 const Exception = types.Exception;
 const Frame = types.Frame;
 
-/// TODO: Replace with allocator from the sentry client
-const allocator = std.heap.page_allocator;
-
 pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
-    const sentry_event = createSentryEvent(msg, first_trace_addr);
-
-    _ = sentry.captureEvent(sentry_event) catch |err| {
-        std.debug.print("cannot capture event, {}\n", .{err});
-    };
+    // If we can't get the allocator because the scope manager is not initialized,
+    // we can't do anything, so we just return.
+    if (scope.getAllocator()) |allocator| {
+        handlePanic(allocator, msg, first_trace_addr);
+    } else |_| {
+        // We can't do anything if we have no allocator.
+    }
 
     std.process.exit(1);
 }
 
-pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
+fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
+    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
+
+    _ = sentry.captureEvent(sentry_event) catch |err| {
+        std.debug.print("cannot capture event, {}\n", .{err});
+    };
+}
+
+fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
     // Create ArrayList to dynamically grow frames - no size limit!
     var frames_list = std.ArrayList(Frame).init(allocator);
 
@@ -37,7 +46,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
         };
         if (debug_info) |di| {
-            extractSymbolInfoSentry(di, addr, &first_frame);
+            extractSymbolInfoSentry(allocator, di, addr, &first_frame);
         }
         frames_list.append(first_frame) catch |err| {
             first_frame.deinit(allocator);
@@ -53,7 +62,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
 
         // Best-effort symbol extraction (kept as optional; addresses remain authoritative)
         if (debug_info) |di| {
-            extractSymbolInfoSentry(di, return_address, &frame);
+            extractSymbolInfoSentry(allocator, di, return_address, &frame);
         }
 
         // Add frame to dynamic list - this should never fail unless out of memory
@@ -112,7 +121,7 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
                     collected_frames[i].deinit(allocator);
                 }
                 std.debug.print("Successfully salvaged {d} frames after allocation failure\n", .{collected_frames.len});
-                return createEventWithFrames(msg, salvaged);
+                return createEventWithFrames(allocator, msg, salvaged);
             } else |_| {
                 std.debug.print("Failed to salvage {d} frames due to memory constraints\n", .{collected_frames.len});
                 // Ensure we free any strings allocated inside the collected frames
@@ -131,14 +140,14 @@ pub fn createSentryEvent(msg: []const u8, first_trace_addr: ?usize) Event {
             return createMinimalEvent(msg);
         };
 
-        return createEventWithFrames(msg, empty_frames);
+        return createEventWithFrames(allocator, msg, empty_frames);
     };
 
-    return createEventWithFrames(msg, frames);
+    return createEventWithFrames(allocator, msg, frames);
 }
 
 /// Create a Sentry event with the provided frames
-fn createEventWithFrames(msg: []const u8, frames: []Frame) Event {
+fn createEventWithFrames(allocator: Allocator, msg: []const u8, frames: []Frame) Event {
     // Create stacktrace
     const stacktrace = StackTrace{
         .frames = frames,
@@ -191,7 +200,7 @@ fn createMinimalEvent(msg: []const u8) Event {
 
 // Best-effort local symbol parsing as a non-fatal enhancement. If it fails,
 // addresses still provide server-side symbolication.
-fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: *Frame) void {
+fn extractSymbolInfoSentry(allocator: Allocator, debug_info: *std.debug.SelfInfo, addr: usize, frame: *Frame) void {
     var temp_buffer: [512]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&temp_buffer);
     const tty_config = std.io.tty.Config.no_color;
@@ -202,11 +211,11 @@ fn extractSymbolInfoSentry(debug_info: *std.debug.SelfInfo, addr: usize, frame: 
 
     var lines = std.mem.splitScalar(u8, output, '\n');
     if (lines.next()) |first_line| {
-        parseSymbolLineSentry(first_line, frame);
+        parseSymbolLineSentry(allocator, first_line, frame);
     }
 }
 
-fn parseSymbolLineSentry(line: []const u8, frame: *Frame) void {
+fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) void {
     if (std.mem.indexOf(u8, line, ":")) |first_colon| {
         const file_part = line[0..first_colon];
         frame.filename = allocator.dupe(u8, file_part) catch null;
@@ -247,10 +256,10 @@ fn parseSymbolLineSentry(line: []const u8, frame: *Frame) void {
 }
 
 // Testable send callback plumbing
-pub const SendCallback = *const fn (Event) void;
+const SendCallback = *const fn (Event) void;
 var send_callback: ?SendCallback = null;
 
-pub fn setSendCallback(cb: SendCallback) void {
+fn setSendCallback(cb: SendCallback) void {
     send_callback = cb;
 }
 
@@ -259,19 +268,24 @@ fn sendToSentry(event: Event) void {
 }
 
 // Helper for tests: same as panic_handler but without process exit
-pub fn panic_handler_test_entry(msg: []const u8, first_trace_addr: ?usize) void {
-    const sentry_event = createSentryEvent(msg, first_trace_addr);
+fn panic_handler_test_entry(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
+    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
     sendToSentry(sentry_event);
 }
 
 test "panic_handler: send callback is invoked with created event" {
+    const allocator = std.testing.allocator;
+
     // test-state globals and callback
     test_send_called = false;
     test_send_captured_msg = null;
     setSendCallback(testSendCb);
 
     const test_msg = "unit-test-message";
-    panic_handler_test_entry(test_msg, @returnAddress());
+    var sentry_event = createSentryEvent(allocator, test_msg, @returnAddress());
+    defer sentry_event.deinit(allocator);
+
+    sendToSentry(sentry_event);
 
     try std.testing.expect(test_send_called);
     try std.testing.expect(test_send_captured_msg != null);
@@ -289,12 +303,16 @@ fn ph_test_three() !Event {
     return try ph_test_four();
 }
 fn ph_test_four() !Event {
+    const allocator = std.testing.allocator;
     // Produce an event through a small call chain so that symbol names are available in frames
-    return createSentryEvent("chain", @returnAddress());
+    return createSentryEvent(allocator, "chain", @returnAddress());
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
     try std.testing.expect(st.frames.len > 0);
@@ -312,7 +330,10 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     const st = ev.exception.?.stacktrace.?;
 
     var have_one = false;
@@ -339,7 +360,10 @@ test "panic_handler: stacktrace works on Windows (addresses and basic symbols)" 
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
     try std.testing.expect(st.frames.len > 0);
@@ -374,7 +398,10 @@ test "panic_handler: Windows function name format detection" {
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const ev = try ph_test_one();
+    const allocator = std.testing.allocator;
+    var ev = try ph_test_one();
+    defer ev.deinit(allocator);
+
     const st = ev.exception.?.stacktrace.?;
 
     // Look for Windows-style function names (might be prefixed with "test.")
