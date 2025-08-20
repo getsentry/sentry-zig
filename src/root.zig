@@ -33,11 +33,11 @@ pub fn captureEvent(event: Event) !?EventId {
     return try scopes.captureEvent(event);
 }
 
-pub fn captureMessage(message: []const u8, level: Level) ?EventId {
+pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     const event = Event.fromMessage(message, level);
     return captureEvent(event);
 }
 
-test "compile check everything" {
+test "compile and test everything" {
     std.testing.refAllDeclsRecursive(@This());
 }

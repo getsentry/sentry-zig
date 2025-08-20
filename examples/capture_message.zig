@@ -27,17 +27,17 @@ pub fn main() !void {
     std.log.info("Sentry captureMessage Demo", .{});
 
     // Capture messages with different severity levels
-    _ = sentry.captureMessage("Debug: Application configuration loaded", .debug);
-    _ = sentry.captureMessage("Info: User authentication successful", .info);
-    _ = sentry.captureMessage("Warning: Database connection pool is running low", .warning);
-    _ = sentry.captureMessage("Error: Failed to process payment transaction", .@"error");
-    _ = sentry.captureMessage("Fatal: Critical system failure detected", .fatal);
+    _ = try sentry.captureMessage("Debug: Application configuration loaded", .debug);
+    _ = try sentry.captureMessage("Info: User authentication successful", .info);
+    _ = try sentry.captureMessage("Warning: Database connection pool is running low", .warning);
+    _ = try sentry.captureMessage("Error: Failed to process payment transaction", .@"error");
+    _ = try sentry.captureMessage("Fatal: Critical system failure detected", .fatal);
 
-    // Additional scenario examples
-    _ = sentry.captureMessage("Application startup completed", .info);
-    _ = sentry.captureMessage("Cache warmed up successfully", .debug);
-    _ = sentry.captureMessage("High memory usage detected: 85%", .warning);
-    _ = sentry.captureMessage("Database query timeout exceeded", .@"error");
+    // A dditional scenario examples
+    _ = try sentry.captureMessage("Application startup completed", .info);
+    _ = try sentry.captureMessage("Cache warmed up successfully", .debug);
+    _ = try sentry.captureMessage("High memory usage detected: 85%", .warning);
+    _ = try sentry.captureMessage("Database query timeout exceeded", .@"error");
 
     std.log.info("Messages sent to Sentry. Check your dashboard!", .{});
     std.time.sleep(std.time.ns_per_s * 2);
