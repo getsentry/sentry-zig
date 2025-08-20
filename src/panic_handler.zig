@@ -288,7 +288,7 @@ fn ph_test_three() !Event {
 }
 fn ph_test_four() !Event {
     // Produce an event through a small call chain so that symbol names are available in frames
-    return createSentryEvent("chain", null);
+    return createSentryEvent("chain", @returnAddress());
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
@@ -313,6 +313,7 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     var have_three = false;
     for (st.frames) |f| {
         if (f.function) |fn_name| {
+            std.debug.print("fn_name: {s}\n", .{fn_name});
             if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
             if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
             if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
