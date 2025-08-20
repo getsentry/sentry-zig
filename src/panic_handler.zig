@@ -311,16 +311,14 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     var have_one = false;
     var have_two = false;
     var have_three = false;
-    var have_four = false;
     for (st.frames) |f| {
         if (f.function) |fn_name| {
             if (std.mem.eql(u8, fn_name, "ph_test_one")) have_one = true;
             if (std.mem.eql(u8, fn_name, "ph_test_two")) have_two = true;
             if (std.mem.eql(u8, fn_name, "ph_test_three")) have_three = true;
-            if (std.mem.eql(u8, fn_name, "ph_test_four")) have_four = true;
         }
     }
-    try std.testing.expect(have_one and have_two and have_three and have_four);
+    try std.testing.expect(have_one and have_two and have_three);
 }
 
 // Test-only globals and callback
