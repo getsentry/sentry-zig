@@ -13,7 +13,7 @@ const Frame = types.Frame;
 /// TODO: Replace with allocator from the sentry client
 const allocator = std.heap.page_allocator;
 
-pub fn panic_handler(msg: []const u8, first_trace_addr: ?usize) noreturn {
+pub fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
     const sentry_event = createSentryEvent(msg, first_trace_addr);
 
     _ = sentry.captureEvent(sentry_event);
