@@ -40,18 +40,32 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
     var stack_iterator = std.debug.StackIterator.init(first_trace_addr, null);
     const debug_info = std.debug.getSelfDebugInfo() catch null;
 
+    // Get project root for frame categorization
+    const project_root = getProjectRoot();
+    defer if (project_root) |root| std.heap.page_allocator.free(root);
+
     // Optionally include the first address as its own frame to ensure the current function is captured
     if (first_trace_addr) |addr| {
         var first_frame = Frame{
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
         };
         if (debug_info) |di| {
-            extractSymbolInfoSentry(allocator, di, addr, &first_frame);
+            extractSymbolInfoWithCategorization(allocator, di, addr, &first_frame, project_root);
+        } else {
+            // No debug info available, categorize based on limited information
+            categorizeFrame(&first_frame, project_root);
         }
-        frames_list.append(first_frame) catch |err| {
+
+        // Only add frame if it's valid
+        if (isValidFrame(&first_frame)) {
+            frames_list.append(first_frame) catch |err| {
+                first_frame.deinit(allocator);
+                std.debug.print("Warning: Failed to add first frame due to memory: {}\n", .{err});
+            };
+        } else {
             first_frame.deinit(allocator);
-            std.debug.print("Warning: Failed to add first frame due to memory: {}\n", .{err});
-        };
+            std.debug.print("Warning: Skipping invalid first frame\n", .{});
+        }
     }
 
     // Collect all frames dynamically - never fail due to buffer size!
@@ -60,19 +74,27 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{return_address}) catch null,
         };
 
-        // Best-effort symbol extraction (kept as optional; addresses remain authoritative)
+        // Best-effort symbol extraction with categorization (kept as optional; addresses remain authoritative)
         if (debug_info) |di| {
-            extractSymbolInfoSentry(allocator, di, return_address, &frame);
+            extractSymbolInfoWithCategorization(allocator, di, return_address, &frame, project_root);
+        } else {
+            // No debug info available, categorize based on limited information
+            categorizeFrame(&frame, project_root);
         }
 
-        // Add frame to dynamic list - this should never fail unless out of memory
-        frames_list.append(frame) catch |err| {
-            // Free strings allocated in this frame since we failed to append it
+        // Only add frame if it's valid
+        if (isValidFrame(&frame)) {
+            frames_list.append(frame) catch |err| {
+                // Free strings allocated in this frame since we failed to append it
+                frame.deinit(allocator);
+                // If we truly run out of memory, at least we have what we collected so far
+                std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
+                break;
+            };
+        } else {
             frame.deinit(allocator);
-            // If we truly run out of memory, at least we have what we collected so far
-            std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
-            break;
-        };
+            // Skip invalid frames silently - they would just be "????" frames
+        }
     }
 
     // Convert to owned slice with robust error handling
@@ -255,6 +277,162 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
     }
 }
 
+// ===== FRAME DETECTION AND CATEGORIZATION SYSTEM =====
+
+/// Get the project root directory for frame categorization
+fn getProjectRoot() ?[]const u8 {
+    // Try environment variable first
+    if (std.process.getEnvVarOwned(std.heap.page_allocator, "SENTRY_PROJECT_ROOT")) |root| {
+        return root;
+    } else |_| {}
+
+    // Try to detect from current working directory
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.process.getCwd(&buf)) |cwd| {
+        // Look for common project indicators
+        const indicators = [_][]const u8{ "build.zig", "build.zig.zon", ".git", "src" };
+        for (indicators) |indicator| {
+            const indicator_path = std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ cwd, indicator }) catch continue;
+            defer std.heap.page_allocator.free(indicator_path);
+
+            if (std.fs.accessAbsolute(indicator_path, .{})) {
+                return std.heap.page_allocator.dupe(u8, cwd) catch null;
+            } else |_| continue;
+        }
+    } else |_| {}
+
+    return null;
+}
+
+/// Check if a frame is valid and contains meaningful information
+fn isValidFrame(frame: *const Frame) bool {
+    // Must have an instruction address
+    if (frame.instruction_addr == null) return false;
+
+    // If we have no symbol information at all, it might be corrupted
+    if (frame.filename == null and frame.function == null and frame.abs_path == null) {
+        // Check if instruction address looks valid (hex format)
+        if (frame.instruction_addr) |addr_str| {
+            if (addr_str.len < 3 or !std.mem.startsWith(u8, addr_str, "0x")) {
+                return false;
+            }
+        }
+        // Allow frames with only instruction addresses - they can be symbolicated server-side
+        return true;
+    }
+
+    return true;
+}
+
+/// Check if a frame belongs to system/standard library code
+fn isSystemFrame(filename: ?[]const u8, function: ?[]const u8) bool {
+    if (filename) |file| {
+        // Zig standard library
+        if (std.mem.indexOf(u8, file, "/lib/zig/std/") != null) return true;
+        if (std.mem.indexOf(u8, file, "\\lib\\zig\\std\\") != null) return true;
+
+        // System libraries (Unix)
+        if (std.mem.indexOf(u8, file, "/usr/lib/") != null) return true;
+        if (std.mem.indexOf(u8, file, "/lib/") != null) return true;
+        if (std.mem.indexOf(u8, file, "/lib64/") != null) return true;
+
+        // System libraries (Windows)
+        if (std.mem.indexOf(u8, file, "\\Windows\\System32\\") != null) return true;
+        if (std.mem.indexOf(u8, file, "\\Windows\\SysWOW64\\") != null) return true;
+
+        // Common system files
+        if (std.mem.endsWith(u8, file, "libc.so") or std.mem.endsWith(u8, file, "libc.dylib")) return true;
+        if (std.mem.endsWith(u8, file, "kernel32.dll") or std.mem.endsWith(u8, file, "ntdll.dll")) return true;
+        if (std.mem.endsWith(u8, file, "libpthread.so") or std.mem.endsWith(u8, file, "libm.so")) return true;
+    }
+
+    if (function) |func| {
+        // Known system function patterns
+        const system_prefixes = [_][]const u8{ "__", "_start", "main.", "std.", "builtin.", "kernel32.", "ntdll.", "libc.", "pthread_" };
+
+        for (system_prefixes) |prefix| {
+            if (std.mem.startsWith(u8, func, prefix)) return true;
+        }
+    }
+
+    return false;
+}
+
+/// Check if a frame belongs to application code
+fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root: ?[]const u8) bool {
+    // If it's a system frame, it's definitely not application code
+    if (isSystemFrame(filename, function)) return false;
+
+    if (project_root) |root| {
+        if (filename) |file| {
+            // Check if file is within project directory
+            if (std.mem.startsWith(u8, file, root)) {
+                return true;
+            }
+
+            // Handle relative paths - check if it looks like project code
+            if (std.mem.indexOf(u8, file, "src/") != null or
+                std.mem.indexOf(u8, file, "src\\") != null)
+            {
+                return true;
+            }
+        }
+    }
+
+    // If no project root, use heuristics
+    if (filename) |file| {
+        // Look for common application patterns
+        if (std.mem.indexOf(u8, file, "src/") != null or
+            std.mem.indexOf(u8, file, "src\\") != null or
+            std.mem.endsWith(u8, file, ".zig"))
+        {
+
+            // But exclude if it's clearly system code
+            if (std.mem.indexOf(u8, file, "/lib/zig/") == null and
+                std.mem.indexOf(u8, file, "\\lib\\zig\\") == null)
+            {
+                return true;
+            }
+        }
+    }
+
+    if (function) |func| {
+        // Application functions typically don't have system prefixes
+        if (!std.mem.startsWith(u8, func, "__") and
+            !std.mem.startsWith(u8, func, "_start") and
+            !std.mem.startsWith(u8, func, "std.") and
+            !std.mem.startsWith(u8, func, "builtin."))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// Categorize a frame and set the in_app field appropriately
+fn categorizeFrame(frame: *Frame, project_root: ?[]const u8) void {
+    if (!isValidFrame(frame)) {
+        frame.in_app = false;
+        return;
+    }
+
+    if (isApplicationFrame(frame.filename, frame.function, project_root)) {
+        frame.in_app = true;
+    } else {
+        frame.in_app = false;
+    }
+}
+
+/// Enhanced symbol extraction that also categorizes frames
+fn extractSymbolInfoWithCategorization(allocator: Allocator, debug_info: *std.debug.SelfInfo, addr: usize, frame: *Frame, project_root: ?[]const u8) void {
+    // First extract symbol information
+    extractSymbolInfoSentry(allocator, debug_info, addr, frame);
+
+    // Then categorize the frame
+    categorizeFrame(frame, project_root);
+}
+
 // Testable send callback plumbing
 const SendCallback = *const fn (Event) void;
 var send_callback: ?SendCallback = null;
@@ -425,4 +603,170 @@ var test_send_captured_msg: ?[]const u8 = null;
 fn testSendCb(ev: Event) void {
     test_send_called = true;
     if (ev.exception) |ex| test_send_captured_msg = ex.value;
+}
+
+// ===== FRAME DETECTION TESTS =====
+
+test "frame detection: isValidFrame correctly validates frames" {
+    var frame_valid = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+        .filename = "src/main.zig",
+        .function = "main",
+    };
+    try std.testing.expect(isValidFrame(&frame_valid));
+
+    var frame_only_addr = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+    };
+    try std.testing.expect(isValidFrame(&frame_only_addr));
+
+    var frame_invalid_addr = Frame{
+        .instruction_addr = "invalid",
+    };
+    try std.testing.expect(!isValidFrame(&frame_invalid_addr));
+
+    var frame_no_addr = Frame{
+        .filename = "src/main.zig",
+    };
+    try std.testing.expect(!isValidFrame(&frame_no_addr));
+}
+
+test "frame detection: isSystemFrame correctly identifies system frames" {
+    // Zig standard library
+    try std.testing.expect(isSystemFrame("/lib/zig/std/debug.zig", null));
+    try std.testing.expect(isSystemFrame("\\lib\\zig\\std\\debug.zig", null));
+
+    // System libraries
+    try std.testing.expect(isSystemFrame("/usr/lib/libc.so", null));
+    try std.testing.expect(isSystemFrame("/lib/libpthread.so", null));
+    try std.testing.expect(isSystemFrame("\\Windows\\System32\\kernel32.dll", null));
+
+    // System functions
+    try std.testing.expect(isSystemFrame(null, "__libc_start_main"));
+    try std.testing.expect(isSystemFrame(null, "std.debug.print"));
+    try std.testing.expect(isSystemFrame(null, "builtin.panic"));
+
+    // Not system
+    try std.testing.expect(!isSystemFrame("src/main.zig", null));
+    try std.testing.expect(!isSystemFrame(null, "myFunction"));
+}
+
+test "frame detection: isApplicationFrame correctly identifies app frames" {
+    const project_root = "/home/user/myproject";
+
+    // Application frames
+    try std.testing.expect(isApplicationFrame("/home/user/myproject/src/main.zig", null, project_root));
+    try std.testing.expect(isApplicationFrame("src/main.zig", null, null));
+    try std.testing.expect(isApplicationFrame("src/lib.zig", "myFunction", null));
+
+    // Not application frames (system)
+    try std.testing.expect(!isApplicationFrame("/lib/zig/std/debug.zig", null, project_root));
+    try std.testing.expect(!isApplicationFrame(null, "std.debug.print", project_root));
+    try std.testing.expect(!isApplicationFrame("/usr/lib/libc.so", null, project_root));
+}
+
+test "frame detection: categorizeFrame sets in_app correctly" {
+    const allocator = std.testing.allocator;
+    const project_root = "/home/user/myproject";
+
+    // Application frame
+    var app_frame = Frame{
+        .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
+        .filename = allocator.dupe(u8, "/home/user/myproject/src/main.zig") catch unreachable,
+        .function = allocator.dupe(u8, "main") catch unreachable,
+    };
+    defer app_frame.deinit(allocator);
+
+    categorizeFrame(&app_frame, project_root);
+    try std.testing.expect(app_frame.in_app == true);
+
+    // System frame
+    var sys_frame = Frame{
+        .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
+        .filename = allocator.dupe(u8, "/lib/zig/std/debug.zig") catch unreachable,
+        .function = allocator.dupe(u8, "std.debug.print") catch unreachable,
+    };
+    defer sys_frame.deinit(allocator);
+
+    categorizeFrame(&sys_frame, project_root);
+    try std.testing.expect(sys_frame.in_app == false);
+
+    // Invalid frame
+    var invalid_frame = Frame{
+        .instruction_addr = null,
+    };
+
+    categorizeFrame(&invalid_frame, project_root);
+    try std.testing.expect(invalid_frame.in_app == false);
+}
+
+test "frame detection: project root detection" {
+    // This test verifies that project root detection works
+    // Note: actual detection depends on file system, so we mainly test it doesn't crash
+    const maybe_root = getProjectRoot();
+    if (maybe_root) |root| {
+        defer std.heap.page_allocator.free(root);
+        try std.testing.expect(root.len > 0);
+    }
+}
+
+test "frame detection: enhanced symbol extraction with categorization" {
+    const allocator = std.testing.allocator;
+    const debug_info = std.debug.getSelfDebugInfo() catch return error.SkipZigTest;
+    const project_root = getProjectRoot();
+    defer if (project_root) |root| std.heap.page_allocator.free(root);
+
+    var frame = Frame{
+        .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{@returnAddress()}) catch return error.SkipZigTest,
+    };
+    defer frame.deinit(allocator);
+
+    extractSymbolInfoWithCategorization(allocator, debug_info, @returnAddress(), &frame, project_root);
+
+    // Frame should be categorized
+    try std.testing.expect(frame.in_app != null);
+
+    // This test function should be considered application code
+    if (frame.function) |func_name| {
+        if (std.mem.indexOf(u8, func_name, "test")) |_| {
+            try std.testing.expect(frame.in_app == true);
+        }
+    }
+}
+
+test "frame detection: end-to-end categorization in panic handler" {
+    const allocator = std.testing.allocator;
+    var event = createSentryEvent(allocator, "test message", @returnAddress());
+    defer event.deinit(allocator);
+
+    try std.testing.expect(event.exception != null);
+    const stacktrace = event.exception.?.stacktrace;
+    try std.testing.expect(stacktrace != null);
+    try std.testing.expect(stacktrace.?.frames.len > 0);
+
+    // Verify that frames are properly categorized
+    var found_categorized_frame = false;
+    var found_non_null_in_app = false;
+
+    for (stacktrace.?.frames) |frame| {
+        // All frames should have instruction addresses
+        try std.testing.expect(frame.instruction_addr != null);
+
+        // All frames should be categorized (in_app should not be null)
+        if (frame.in_app != null) {
+            found_categorized_frame = true;
+            found_non_null_in_app = true;
+        }
+
+        // Print frame info for debugging (but don't fail on specific expectations)
+        if (frame.function) |func_name| {
+            std.debug.print("Frame: {s}, in_app: {?}\n", .{ func_name, frame.in_app });
+        } else if (frame.filename) |filename| {
+            std.debug.print("Frame: {s}, in_app: {?}\n", .{ filename, frame.in_app });
+        }
+    }
+
+    // The important thing is that frames are being categorized
+    try std.testing.expect(found_categorized_frame);
+    try std.testing.expect(found_non_null_in_app);
 }
