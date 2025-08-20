@@ -227,11 +227,11 @@ pub const Scope = struct {
     /// Apply scope data to an event (similar to Python's apply_to_event)
     pub fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
-        try self.applyTagsToEvent(event, self.allocator);
-        try self.applyUserToEvent(event, self.allocator);
-        try self.applyFingerprintToEvent(event, self.allocator);
-        try self.applyBreadcrumbsToEvent(event, self.allocator);
-        try self.applyContextsToEvent(event, self.allocator);
+        try self.applyTagsToEvent(event);
+        try self.applyUserToEvent(event);
+        try self.applyFingerprintToEvent(event);
+        try self.applyBreadcrumbsToEvent(event);
+        try self.applyContextsToEvent(event);
     }
 
     fn applyLevelToEvent(self: *const Scope, event: *Event) void {
