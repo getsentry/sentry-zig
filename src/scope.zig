@@ -606,7 +606,7 @@ pub fn captureEvent(event: Event) !?EventId{
             }
         }
     }
-    client.captureEvent(event);
+    client.?.captureEvent(event);
 }
 
 // Used for tests
