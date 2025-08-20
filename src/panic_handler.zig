@@ -56,15 +56,15 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
             categorizeFrame(&first_frame, project_root);
         }
 
-        // Only add frame if it's valid
-        if (isValidFrame(&first_frame)) {
+        // Only add frame if it's valid and not a panic handler infrastructure frame
+        if (isValidFrame(&first_frame) and !isPanicHandlerFrame(first_frame.filename, first_frame.function)) {
             frames_list.append(first_frame) catch |err| {
                 first_frame.deinit(allocator);
                 std.debug.print("Warning: Failed to add first frame due to memory: {}\n", .{err});
             };
         } else {
             first_frame.deinit(allocator);
-            std.debug.print("Warning: Skipping invalid first frame\n", .{});
+            // Skip invalid frames or panic handler infrastructure frames silently
         }
     }
 
@@ -82,8 +82,8 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
             categorizeFrame(&frame, project_root);
         }
 
-        // Only add frame if it's valid
-        if (isValidFrame(&frame)) {
+        // Only add frame if it's valid and not a panic handler infrastructure frame
+        if (isValidFrame(&frame) and !isPanicHandlerFrame(frame.filename, frame.function)) {
             frames_list.append(frame) catch |err| {
                 // Free strings allocated in this frame since we failed to append it
                 frame.deinit(allocator);
@@ -93,7 +93,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
             };
         } else {
             frame.deinit(allocator);
-            // Skip invalid frames silently - they would just be "????" frames
+            // Skip invalid frames or panic handler infrastructure frames silently
         }
     }
 
@@ -309,19 +309,61 @@ fn isValidFrame(frame: *const Frame) bool {
     // Must have an instruction address
     if (frame.instruction_addr == null) return false;
 
-    // If we have no symbol information at all, it might be corrupted
-    if (frame.filename == null and frame.function == null and frame.abs_path == null) {
-        // Check if instruction address looks valid (hex format)
-        if (frame.instruction_addr) |addr_str| {
-            if (addr_str.len < 3 or !std.mem.startsWith(u8, addr_str, "0x")) {
-                return false;
-            }
+    // Check if instruction address looks valid (hex format and not null pointer)
+    if (frame.instruction_addr) |addr_str| {
+        if (addr_str.len < 3 or !std.mem.startsWith(u8, addr_str, "0x")) {
+            return false;
         }
-        // Allow frames with only instruction addresses - they can be symbolicated server-side
-        return true;
+        // Reject null pointer addresses
+        if (std.mem.eql(u8, addr_str, "0x0")) {
+            return false;
+        }
+    }
+
+    // Reject frames with "???" values - these are corrupted/unknown
+    if (frame.filename) |filename| {
+        if (std.mem.eql(u8, filename, "???")) return false;
+    }
+    if (frame.function) |function| {
+        if (std.mem.eql(u8, function, "???")) return false;
+    }
+    if (frame.abs_path) |abs_path| {
+        if (std.mem.eql(u8, abs_path, "???")) return false;
     }
 
     return true;
+}
+
+/// Check if a frame belongs to panic handler infrastructure that should be filtered out
+fn isPanicHandlerFrame(filename: ?[]const u8, function: ?[]const u8) bool {
+    if (function) |func| {
+        // Filter out our panic handler functions
+        if (std.mem.eql(u8, func, "panicHandler") or
+            std.mem.eql(u8, func, "handlePanic") or
+            std.mem.eql(u8, func, "createSentryEvent") or
+            std.mem.eql(u8, func, "createEventWithFrames") or
+            std.mem.eql(u8, func, "createMinimalEvent")) return true;
+    }
+
+    if (filename) |file| {
+        // If it's from panic_handler.zig, check if it's an internal function
+        if (std.mem.endsWith(u8, file, "panic_handler.zig") or
+            std.mem.indexOf(u8, file, "/panic_handler.zig") != null or
+            std.mem.indexOf(u8, file, "\\panic_handler.zig") != null)
+        {
+
+            // Only filter out if it's clearly an infrastructure function
+            if (function) |func| {
+                if (std.mem.eql(u8, func, "panicHandler") or
+                    std.mem.eql(u8, func, "handlePanic") or
+                    std.mem.eql(u8, func, "createSentryEvent") or
+                    std.mem.eql(u8, func, "createEventWithFrames") or
+                    std.mem.eql(u8, func, "createMinimalEvent")) return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 /// Check if a frame belongs to system/standard library code
@@ -362,6 +404,14 @@ fn isSystemFrame(filename: ?[]const u8, function: ?[]const u8) bool {
 fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root: ?[]const u8) bool {
     // If it's a system frame, it's definitely not application code
     if (isSystemFrame(filename, function)) return false;
+
+    // Reject unknown/corrupted frames with "???" values
+    if (filename) |file| {
+        if (std.mem.eql(u8, file, "???")) return false;
+    }
+    if (function) |func| {
+        if (std.mem.eql(u8, func, "???")) return false;
+    }
 
     if (project_root) |root| {
         if (filename) |file| {
@@ -629,6 +679,22 @@ test "frame detection: isValidFrame correctly validates frames" {
         .filename = "src/main.zig",
     };
     try std.testing.expect(!isValidFrame(&frame_no_addr));
+
+    // Test "???" frame rejection
+    var frame_question_marks = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+        .filename = "???",
+        .function = "???",
+        .abs_path = "???",
+    };
+    try std.testing.expect(!isValidFrame(&frame_question_marks));
+
+    // Test null pointer rejection
+    var frame_null_ptr = Frame{
+        .instruction_addr = "0x0",
+        .filename = "src/main.zig",
+    };
+    try std.testing.expect(!isValidFrame(&frame_null_ptr));
 }
 
 test "frame detection: isSystemFrame correctly identifies system frames" {
@@ -651,6 +717,24 @@ test "frame detection: isSystemFrame correctly identifies system frames" {
     try std.testing.expect(!isSystemFrame(null, "myFunction"));
 }
 
+test "frame detection: isPanicHandlerFrame correctly identifies panic handler frames" {
+    // Panic handler functions should be filtered
+    try std.testing.expect(isPanicHandlerFrame(null, "panicHandler"));
+    try std.testing.expect(isPanicHandlerFrame(null, "handlePanic"));
+    try std.testing.expect(isPanicHandlerFrame(null, "createSentryEvent"));
+    try std.testing.expect(isPanicHandlerFrame(null, "createEventWithFrames"));
+    try std.testing.expect(isPanicHandlerFrame(null, "createMinimalEvent"));
+
+    // Panic handler file with infrastructure functions
+    try std.testing.expect(isPanicHandlerFrame("/path/to/panic_handler.zig", "panicHandler"));
+    try std.testing.expect(isPanicHandlerFrame("src/panic_handler.zig", "handlePanic"));
+
+    // Not panic handler frames
+    try std.testing.expect(!isPanicHandlerFrame("src/main.zig", "main"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "myFunction"));
+    try std.testing.expect(!isPanicHandlerFrame("panic_handler.zig", "userFunction")); // user function in panic handler file
+}
+
 test "frame detection: isApplicationFrame correctly identifies app frames" {
     const project_root = "/home/user/myproject";
 
@@ -663,6 +747,11 @@ test "frame detection: isApplicationFrame correctly identifies app frames" {
     try std.testing.expect(!isApplicationFrame("/lib/zig/std/debug.zig", null, project_root));
     try std.testing.expect(!isApplicationFrame(null, "std.debug.print", project_root));
     try std.testing.expect(!isApplicationFrame("/usr/lib/libc.so", null, project_root));
+
+    // Not application frames ("???" frames)
+    try std.testing.expect(!isApplicationFrame("???", null, project_root));
+    try std.testing.expect(!isApplicationFrame(null, "???", project_root));
+    try std.testing.expect(!isApplicationFrame("???", "???", project_root));
 }
 
 test "frame detection: categorizeFrame sets in_app correctly" {
