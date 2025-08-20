@@ -8,12 +8,17 @@ pub const SentryOptions = types.SentryOptions;
 pub const Breadcrumb = types.Breadcrumb;
 pub const Dsn = types.Dsn;
 pub const Level = types.Level;
+pub const StackTrace = types.StackTrace;
+pub const Exception = types.Exception;
+pub const Frame = types.Frame;
 
 pub const SentryClient = @import("client.zig").SentryClient;
 
 const scopes = @import("scope.zig");
 pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
+
+pub const panicHandler = @import("panic_handler.zig").panicHandler;
 
 pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
     try scopes.initScopeManager(allocator);
@@ -28,6 +33,12 @@ pub fn captureEvent(event: Event) !?EventId {
     return try scopes.captureEvent(event);
 }
 
-test "compile check everything" {
+pub fn captureMessage(message: []const u8, level: Level) !?EventId {
+    const event = Event.fromMessage(message, level);
+    return captureEvent(event);
+}
+
+test "compile and test everything" {
+    _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

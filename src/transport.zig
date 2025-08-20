@@ -104,6 +104,7 @@ pub const HttpTransport = struct {
             return TransportResult{ .response_code = 0 };
         };
         std.log.debug("sending payload {s}", .{payload});
+        std.log.debug("http response {}", .{@as(i64, @intCast(@intFromEnum(result.status)))});
 
         return TransportResult{ .response_code = @intCast(@intFromEnum(result.status)) };
     }
