@@ -42,6 +42,7 @@ pub fn build(b: *std.Build) void {
     });
 
     lib.root_module.addImport("types", types);
+    types.addImport("utils", lib_mod);
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
@@ -51,6 +52,7 @@ pub fn build(b: *std.Build) void {
     // Examples
     addExample(b, target, optimize, lib, "panic_handler", "Panic handler example");
     addExample(b, target, optimize, lib, "capture_message", "Run the captureMessage demo");
+    addExample(b, target, optimize, lib, "capture_error", "Run the captureError demo");
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.

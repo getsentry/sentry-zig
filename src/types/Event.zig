@@ -831,4 +831,41 @@ pub const Event = struct {
             .message = .{ .message = message },
         };
     }
+
+    /// Create an Event from an error with optional stack trace
+    pub fn fromError(allocator: std.mem.Allocator, err: anyerror, err_trace: ?*std.builtin.StackTrace) Event {
+        const sentry = @import("utils");
+
+        // Try to collect error trace if available
+        const stacktrace = sentry.stack_trace.collectErrorTrace(allocator, err_trace) catch null;
+
+        // Get error name
+        const error_name = @errorName(err);
+
+        // Create exception
+        const exception = Exception{
+            .type = allocator.dupe(u8, error_name) catch error_name,
+            .value = allocator.dupe(u8, error_name) catch error_name,
+            .module = null,
+            .thread_id = null,
+            .stacktrace = stacktrace,
+            .mechanism = if (err_trace != null) blk: {
+                const mech = allocator.create(Mechanism) catch break :blk null;
+                mech.* = Mechanism{
+                    .type = allocator.dupe(u8, "generic") catch "generic",
+                    .handled = false,
+                };
+                break :blk mech.*;
+            } else null,
+        };
+
+        return Event{
+            .event_id = EventId.new(),
+            .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+            .platform = "native",
+            .level = Level.@"error",
+            .exception = exception,
+            .logger = allocator.dupe(u8, "error_handler") catch "error_handler",
+        };
+    }
 };

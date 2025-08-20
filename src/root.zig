@@ -19,6 +19,7 @@ pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
 
 pub const panicHandler = @import("panic_handler.zig").panicHandler;
+pub const stack_trace = @import("utils/stack_trace.zig");
 
 pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
     try scopes.initScopeManager(allocator);
@@ -35,6 +36,11 @@ pub fn captureEvent(event: Event) !?EventId {
 
 pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     const event = Event.fromMessage(message, level);
+    return captureEvent(event);
+}
+
+pub fn captureError(allocator: Allocator, err: anyerror, err_trace: ?*std.builtin.StackTrace) !?EventId {
+    const event = Event.fromError(allocator, err, err_trace);
     return captureEvent(event);
 }
 
