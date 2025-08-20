@@ -18,9 +18,7 @@ const scopes = @import("scope.zig");
 pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
 
-const panic_handler_mod = @import("panic_handler.zig");
-pub const panic_handler = panic_handler_mod.panic_handler;
-pub const createSentryEvent = panic_handler_mod.createSentryEvent;
+pub const panicHandler = @import("panic_handler.zig").panicHandler;
 
 pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
     try scopes.initScopeManager(allocator);
