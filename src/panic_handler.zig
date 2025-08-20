@@ -329,6 +329,10 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
 }
 
 test "just panic" {
+    const builtin = @import("builtin");
+
+    if (builtin.os.tag != .windows) return error.SkipZigTest;
+
     @panic("Oh no, i panicked and now I'm sad");
 }
 
