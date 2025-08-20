@@ -29,5 +29,6 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 test "compile check everything" {
+    _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());
 }
