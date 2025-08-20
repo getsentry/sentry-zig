@@ -592,21 +592,27 @@ pub fn getClient() ?*SentryClient {
     return null;
 }
 
-pub fn captureEvent(event: Event) !?EventId{
+pub fn captureEvent(event: Event) !?EventId {
     const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
-    var client: *SentryClient = null;
+    var client: ?*SentryClient = null;
+    var event_copy = event;
 
     inline for (scope_getters) |getter| {
         if (getter() catch null) |scope| {
-            if (scope) {
-                scope.applyToEvent();
-                if (scope.client) |scopeClient| {
-                   client = scopeClient;
-                }
+            try scope.applyToEvent(&event_copy);
+            if (scope.client) |scopeClient| {
+                client = scopeClient;
             }
         }
     }
-    client.?.captureEvent(event);
+
+    if (client) |c| {
+        if (try c.captureEvent(event_copy)) |event_id_bytes| {
+            return EventId{ .value = event_id_bytes };
+        }
+    }
+
+    return null;
 }
 
 // Used for tests

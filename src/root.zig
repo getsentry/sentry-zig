@@ -24,7 +24,7 @@ pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*Se
     return client;
 }
 
-pub fn captureEvent(event: Event) ?EventId {
+pub fn captureEvent(event: Event) !?EventId {
     return try scopes.captureEvent(event);
 }
 
