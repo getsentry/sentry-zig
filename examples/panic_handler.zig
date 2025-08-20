@@ -2,7 +2,7 @@ const std = @import("std");
 const sentry = @import("sentry_zig");
 
 // Set up the panic handler to use Sentry's panic handler
-pub const panic = std.debug.FullPanic(sentry.panic_handler);
+pub const panic = std.debug.FullPanic(sentry.panicHandler);
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
