@@ -51,14 +51,27 @@ pub const withTransaction = tracing.withTransaction;
 
 pub const withSpan = tracing.withSpan;
 
-pub const setTrace = tracing.setTrace;
-
 pub const getSentryTrace = tracing.getSentryTrace;
 
 pub const getActiveTransaction = tracing.getActiveTransaction;
 
 pub const getActiveSpan = tracing.getActiveSpan;
 
+/// Static API: Get current span from scope (Sentry.span equivalent)
+pub fn span() ?*anyopaque {
+    if (scopes.getCurrentScope() catch null) |current_scope| {
+        return current_scope.getSpan();
+    }
+    return null;
+}
+
+/// Get sentry-trace header from current scope
+pub fn traceHeaders(allocator: Allocator) !?[]u8 {
+    if (scopes.getCurrentScope() catch null) |current_scope| {
+        return try current_scope.traceHeaders(allocator);
+    }
+    return null;
+}
 
 test "compile check everything" {
     std.testing.refAllDeclsRecursive(@This());

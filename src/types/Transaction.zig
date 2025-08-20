@@ -4,6 +4,20 @@ const SpanId = @import("SpanId.zig").SpanId;
 const PropagationContext = @import("PropagationContext.zig").PropagationContext;
 const EventId = @import("Event.zig").EventId;
 
+pub const Sampled = enum(i8) {
+    False = -1,
+    Undefined = 0,
+    True = 1,
+
+    pub fn fromBool(value: ?bool) Sampled {
+        return if (value) |v| (if (v) .True else .False) else .Undefined;
+    }
+
+    pub fn toBool(self: Sampled) bool {
+        return self == .True;
+    }
+};
+
 /// Transaction context for creating transactions
 pub const TransactionContext = struct {
     name: []const u8,
@@ -104,7 +118,7 @@ pub const Transaction = struct {
     // Transaction metadata
     description: ?[]const u8 = null,
     status: ?TransactionStatus = null,
-    sampled: ?bool = null,
+    sampled: Sampled = .Undefined,
 
     // Timing
     start_timestamp: f64,
@@ -132,7 +146,7 @@ pub const Transaction = struct {
             .span_id = context.span_id orelse SpanId.generate(),
             .parent_span_id = context.parent_span_id,
             .description = if (context.description) |desc| try allocator.dupe(u8, desc) else null,
-            .sampled = context.sampled,
+            .sampled = Sampled.fromBool(context.sampled),
             .start_timestamp = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0,
             .spans = std.ArrayList(*Span).init(allocator),
             .allocator = allocator,
@@ -143,10 +157,28 @@ pub const Transaction = struct {
 
     /// Finish the transaction
     pub fn finish(self: *Transaction) void {
-        if (!self.finished) {
-            self.timestamp = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0;
-            self.finished = true;
-        }
+        if (self.finished) return;
+
+        self.timestamp = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0;
+        self.finished = true;
+    }
+
+    /// Convert transaction to Event for Sentry protocol
+    pub fn toEvent(self: *Transaction) @import("Event.zig").Event {
+        const Event = @import("Event.zig").Event;
+
+        return Event{
+            .event_id = @import("Event.zig").EventId.new(),
+            .timestamp = self.timestamp orelse self.start_timestamp,
+            .type = "transaction",
+            .transaction = self.name,
+            .trace_id = self.trace_id,
+            .span_id = self.span_id,
+            .parent_span_id = self.parent_span_id,
+            .tags = self.tags,
+            // Note: spans and data fields would need special handling for full transaction events
+            // but this covers the basic event conversion
+        };
     }
 
     /// Set transaction status
@@ -217,9 +249,13 @@ pub const Transaction = struct {
     pub fn toSentryTrace(self: Transaction, allocator: std.mem.Allocator) ![]u8 {
         const trace_hex = self.trace_id.toHexFixed();
         const span_hex = self.span_id.toHexFixed();
-        const sampled_str = if (self.sampled) |s| (if (s) "1" else "0") else "";
+        const sampled_str = switch (self.sampled) {
+            .True => "-1",
+            .False => "-0",
+            .Undefined => "",
+        };
 
-        return try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ trace_hex, span_hex, sampled_str });
+        return try std.fmt.allocPrint(allocator, "{s}-{s}{s}", .{ trace_hex, span_hex, sampled_str });
     }
 
     /// JSON serialization for transactions
@@ -273,9 +309,9 @@ pub const Transaction = struct {
             try jw.write(status.toString());
         }
 
-        if (self.sampled) |sampled| {
+        if (self.sampled != .Undefined) {
             try jw.objectField("sampled");
-            try jw.write(sampled);
+            try jw.write(self.sampled.toBool());
         }
 
         // Tags

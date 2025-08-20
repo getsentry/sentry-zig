@@ -630,6 +630,7 @@ pub const Event = struct {
     platform: []const u8 = "native",
 
     // Optional attributes
+    type: ?[]const u8 = null,
     level: ?Level = null,
     logger: ?[]const u8 = null,
     transaction: ?[]const u8 = null,
@@ -675,6 +676,12 @@ pub const Event = struct {
         try jw.write(self.timestamp);
         try jw.objectField("platform");
         try jw.write(self.platform);
+
+        // Optional type field
+        if (self.type) |event_type| {
+            try jw.objectField("type");
+            try jw.write(event_type);
+        }
 
         // Let std.json.stringify handle most optional fields
         if (self.level) |level| {

@@ -12,7 +12,10 @@ pub const SentryOptions = struct {
 
     // Tracing options
     traces_sample_rate: ?f64 = null, // null means tracing disabled, 0.0-1.0 enables tracing
-    enable_tracing: bool = false, // Explicit flag to enable tracing
+    // TODO: Add traces_sampler callback once we solve the anytype comptime issue
+    trace_propagation_targets: ?[][]const u8 = null, // URLs to attach trace headers to
+    strict_trace_continuation: bool = false, // Validate org ID for trace continuation
+    org_id: ?[]const u8 = null, // Organization ID for trace validation
 
     /// Deinitialize the options and free allocated memory.
     /// Note: environment and release strings are not freed by this method.

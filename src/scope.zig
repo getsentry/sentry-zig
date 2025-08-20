@@ -39,6 +39,7 @@ pub const Scope = struct {
 
     // Tracing context
     propagation_context: PropagationContext,
+    span: ?*anyopaque = null,
 
     const MAX_BREADCRUMBS = 100;
 
@@ -53,6 +54,7 @@ pub const Scope = struct {
             .contexts = std.StringHashMap(std.StringHashMap([]const u8)).init(allocator),
             .client = null,
             .propagation_context = PropagationContext.generate(),
+            .span = null,
         };
     }
 
@@ -436,6 +438,43 @@ pub const Scope = struct {
     pub fn bindClient(self: *Scope, client: *SentryClient) void {
         self.client = client;
     }
+
+    /// Set the current span or transaction on this scope
+    pub fn setSpan(self: *Scope, span_or_transaction: ?*anyopaque) void {
+        self.span = span_or_transaction;
+    }
+
+    /// Get the current span or transaction from this scope
+    pub fn getSpan(self: *const Scope) ?*anyopaque {
+        return self.span;
+    }
+
+    /// Generate sentry-trace header from current span/transaction
+    pub fn traceHeaders(self: *const Scope, allocator: std.mem.Allocator) !?[]u8 {
+        if (self.span == null) {
+            // Generate from propagation context
+            const trace_hex = self.propagation_context.trace_id.toHexFixed();
+            const span_hex = self.propagation_context.span_id.toHexFixed();
+            return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
+        }
+
+        // TODO: Determine if span is Transaction or Span and call appropriate method
+        // For now, generate from propagation context
+        const trace_hex = self.propagation_context.trace_id.toHexFixed();
+        const span_hex = self.propagation_context.span_id.toHexFixed();
+        return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
+    }
+
+    /// Start a new transaction (Hub equivalent method)
+    pub fn startTransaction(self: *Scope, allocator: std.mem.Allocator, transaction_context: ?*const anyopaque, custom_sampling_context: ?*const anyopaque) !?*anyopaque {
+        _ = self;
+        _ = allocator;
+        _ = transaction_context;
+        _ = custom_sampling_context;
+        // TODO: Implement transaction creation logic here
+        // This should integrate with the tracing module functionality
+        return null;
+    }
 };
 
 // Global scope (not thread-local, singleton)
@@ -641,6 +680,15 @@ pub fn setTraceFromHex(trace_id_hex: []const u8, span_id_hex: []const u8, parent
 pub fn getPropagationContext() !PropagationContext {
     const scope = try getIsolationScope();
     return scope.getPropagationContext();
+}
+
+// Convenience function to set the client on the global scope
+pub fn setClient(client: *SentryClient) void {
+    if (getGlobalScope() catch null) |scope| {
+        scope.bindClient(client);
+    } else {
+        std.log.err("Failed to get global scope for setting client", .{});
+    }
 }
 
 // Convenience function to get the client
