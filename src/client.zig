@@ -132,12 +132,6 @@ pub const SentryClient = struct {
 
         // Add SDK info
         if (prepared.sdk == null) {
-            var packages = [_]SDKPackage{
-                SDKPackage{
-                    .name = "sentry-zig",
-                    .version = "0.1.0",
-                },
-            };
             prepared.sdk = SDK{
                 .name = "sentry.zig",
                 .version = "0.1.0", //TODO: get version from somewhere instead of hardcoding it
