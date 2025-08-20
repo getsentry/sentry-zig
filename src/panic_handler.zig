@@ -41,8 +41,8 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
     const debug_info = std.debug.getSelfDebugInfo() catch null;
 
     // Get project root for frame categorization
-    const project_root = getProjectRoot();
-    defer if (project_root) |root| std.heap.page_allocator.free(root);
+    const project_root = getProjectRoot(allocator);
+    defer if (project_root) |root| allocator.free(root);
 
     // Optionally include the first address as its own frame to ensure the current function is captured
     if (first_trace_addr) |addr| {
@@ -280,9 +280,9 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
 // ===== FRAME DETECTION AND CATEGORIZATION SYSTEM =====
 
 /// Get the project root directory for frame categorization
-fn getProjectRoot() ?[]const u8 {
+fn getProjectRoot(allocator: Allocator) ?[]const u8 {
     // Try environment variable first
-    if (std.process.getEnvVarOwned(std.heap.page_allocator, "SENTRY_PROJECT_ROOT")) |root| {
+    if (std.process.getEnvVarOwned(allocator, "SENTRY_PROJECT_ROOT")) |root| {
         return root;
     } else |_| {}
 
@@ -292,11 +292,11 @@ fn getProjectRoot() ?[]const u8 {
         // Look for common project indicators
         const indicators = [_][]const u8{ "build.zig", "build.zig.zon", ".git", "src" };
         for (indicators) |indicator| {
-            const indicator_path = std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ cwd, indicator }) catch continue;
-            defer std.heap.page_allocator.free(indicator_path);
+            const indicator_path = std.fs.path.join(allocator, &[_][]const u8{ cwd, indicator }) catch continue;
+            defer allocator.free(indicator_path);
 
             if (std.fs.accessAbsolute(indicator_path, .{})) {
-                return std.heap.page_allocator.dupe(u8, cwd) catch null;
+                return allocator.dupe(u8, cwd) catch null;
             } else |_| continue;
         }
     } else |_| {}
@@ -792,9 +792,10 @@ test "frame detection: categorizeFrame sets in_app correctly" {
 test "frame detection: project root detection" {
     // This test verifies that project root detection works
     // Note: actual detection depends on file system, so we mainly test it doesn't crash
-    const maybe_root = getProjectRoot();
+    const allocator = std.testing.allocator;
+    const maybe_root = getProjectRoot(allocator);
     if (maybe_root) |root| {
-        defer std.heap.page_allocator.free(root);
+        defer allocator.free(root);
         try std.testing.expect(root.len > 0);
     }
 }
@@ -802,8 +803,8 @@ test "frame detection: project root detection" {
 test "frame detection: enhanced symbol extraction with categorization" {
     const allocator = std.testing.allocator;
     const debug_info = std.debug.getSelfDebugInfo() catch return error.SkipZigTest;
-    const project_root = getProjectRoot();
-    defer if (project_root) |root| std.heap.page_allocator.free(root);
+    const project_root = getProjectRoot(allocator);
+    defer if (project_root) |root| allocator.free(root);
 
     var frame = Frame{
         .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{@returnAddress()}) catch return error.SkipZigTest,
