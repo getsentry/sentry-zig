@@ -42,8 +42,12 @@ pub fn collectStackTrace(allocator: std.mem.Allocator, first_trace_addr: ?usize)
         try frames_list.append(frame);
     }
 
+    // Reverse the frames to match Sentry's expected order (inner -> outer)
+    const frames = try frames_list.toOwnedSlice();
+    std.mem.reverse(Frame, frames);
+
     return StackTrace{
-        .frames = try frames_list.toOwnedSlice(),
+        .frames = frames,
         .registers = null,
     };
 }
@@ -78,8 +82,12 @@ pub fn collectErrorTrace(allocator: std.mem.Allocator, err_trace: ?*std.builtin.
 
     if (frames_list.items.len == 0) return null;
 
+    // Reverse the frames to match Sentry's expected order (inner -> outer)
+    const frames = try frames_list.toOwnedSlice();
+    std.mem.reverse(Frame, frames);
+
     return StackTrace{
-        .frames = try frames_list.toOwnedSlice(),
+        .frames = frames,
         .registers = null,
     };
 }
