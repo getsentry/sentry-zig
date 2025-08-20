@@ -277,29 +277,50 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
     }
 }
 
-// ===== FRAME DETECTION AND CATEGORIZATION SYSTEM =====
+// ===== BINARY-ONLY FRAME DETECTION AND CATEGORIZATION SYSTEM =====
+// This system works entirely from debug information embedded in the binary.
+// NO filesystem access - perfect for Docker containers and static deployments.
 
 /// Get the project root directory for frame categorization
+/// BINARY-ONLY: Works entirely from debug information embedded in the binary - NO filesystem access
 fn getProjectRoot(allocator: Allocator) ?[]const u8 {
-    // Try environment variable first
+    // Try environment variable first (explicit override)
     if (std.process.getEnvVarOwned(allocator, "SENTRY_PROJECT_ROOT")) |root| {
         return root;
     } else |_| {}
 
-    // Try to detect from current working directory
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    if (std.process.getCwd(&buf)) |cwd| {
-        // Look for common project indicators
-        const indicators = [_][]const u8{ "build.zig", "build.zig.zon", ".git", "src" };
-        for (indicators) |indicator| {
-            const indicator_path = std.fs.path.join(allocator, &[_][]const u8{ cwd, indicator }) catch continue;
-            defer allocator.free(indicator_path);
+    // Infer project root from compile-time embedded source file path
+    return inferProjectRootFromEmbeddedDebugInfo(allocator);
+}
 
-            if (std.fs.accessAbsolute(indicator_path, .{})) {
-                return allocator.dupe(u8, cwd) catch null;
-            } else |_| continue;
+/// Infer project root from compile-time debug information embedded in the binary
+/// BINARY-ONLY: Uses only debug paths compiled into the binary - works in Docker/static deployments
+fn inferProjectRootFromEmbeddedDebugInfo(allocator: Allocator) ?[]const u8 {
+    // Get the compile-time source file path embedded in debug info
+    const source_file = @src().file;
+
+    // Parse the embedded path to find project structure patterns
+    // This file is at src/panic_handler.zig, so walk up to find project root
+
+    if (std.mem.lastIndexOf(u8, source_file, "/src/")) |src_idx| {
+        // Found "/src/" in embedded path, project root is everything before it
+        const project_root = source_file[0..src_idx];
+        return allocator.dupe(u8, project_root) catch null;
+    }
+
+    // Fallback: try to find other common patterns in embedded debug paths
+    const patterns = [_][]const u8{ "/examples/", "/lib/", "/source/" };
+    for (patterns) |pattern| {
+        if (std.mem.lastIndexOf(u8, source_file, pattern)) |idx| {
+            const project_root = source_file[0..idx];
+            return allocator.dupe(u8, project_root) catch null;
         }
-    } else |_| {}
+    }
+
+    // Last resort: use the directory from embedded debug path (string manipulation only)
+    if (std.fs.path.dirname(source_file)) |dir| {
+        return allocator.dupe(u8, dir) catch null;
+    }
 
     return null;
 }
@@ -401,6 +422,7 @@ fn isSystemFrame(filename: ?[]const u8, function: ?[]const u8) bool {
 }
 
 /// Check if a frame belongs to application code
+/// BINARY-ONLY: Uses embedded debug path analysis - works even when debug paths don't match runtime environment
 fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root: ?[]const u8) bool {
     // If it's a system frame, it's definitely not application code
     if (isSystemFrame(filename, function)) return false;
@@ -415,8 +437,13 @@ fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root
 
     if (project_root) |root| {
         if (filename) |file| {
-            // Check if file is within project directory
+            // Direct prefix match (exact path)
             if (std.mem.startsWith(u8, file, root)) {
+                return true;
+            }
+
+            // Pattern match (useful when runtime path differs from build path)
+            if (isFileInProjectPattern(file, root)) {
                 return true;
             }
 
@@ -429,16 +456,30 @@ fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root
         }
     }
 
-    // If no project root, use heuristics
+    // Enhanced heuristics for Docker/static binary scenarios
     if (filename) |file| {
         // Look for common application patterns
-        if (std.mem.indexOf(u8, file, "src/") != null or
+        if (std.mem.indexOf(u8, file, "/src/") != null or
+            std.mem.indexOf(u8, file, "/examples/") != null or
+            std.mem.indexOf(u8, file, "/app/") != null or
+            std.mem.indexOf(u8, file, "/source/") != null or
             std.mem.indexOf(u8, file, "src\\") != null or
-            std.mem.endsWith(u8, file, ".zig"))
+            std.mem.indexOf(u8, file, "examples\\") != null)
         {
-
             // But exclude if it's clearly system code
             if (std.mem.indexOf(u8, file, "/lib/zig/") == null and
+                std.mem.indexOf(u8, file, "\\lib\\zig\\") == null)
+            {
+                return true;
+            }
+        }
+
+        // Check for Zig source files that don't look like system files
+        if (std.mem.endsWith(u8, file, ".zig")) {
+            // Additional check: make sure it doesn't look like a test or build file
+            if (std.mem.indexOf(u8, file, "/test/") == null and
+                std.mem.indexOf(u8, file, "build.zig") == null and
+                std.mem.indexOf(u8, file, "/lib/zig/") == null and
                 std.mem.indexOf(u8, file, "\\lib\\zig\\") == null)
             {
                 return true;
@@ -453,6 +494,40 @@ fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root
             !std.mem.startsWith(u8, func, "std.") and
             !std.mem.startsWith(u8, func, "builtin."))
         {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// Check if a file path matches project patterns, even when paths don't exactly align
+/// BINARY-ONLY: Pure string matching on embedded debug paths - no filesystem access
+/// Useful for Docker containers where compile-time paths differ from runtime paths
+fn isFileInProjectPattern(filename: []const u8, project_root: []const u8) bool {
+    // Extract the project name from both Unix and Windows style paths manually
+    // since std.fs.path.basename doesn't handle cross-platform paths correctly
+    var project_name: []const u8 = project_root;
+
+    // Find the last slash (either / or \)
+    if (std.mem.lastIndexOfScalar(u8, project_root, '/')) |idx| {
+        project_name = project_root[idx + 1 ..];
+    } else if (std.mem.lastIndexOfScalar(u8, project_root, '\\')) |idx| {
+        project_name = project_root[idx + 1 ..];
+    }
+
+    // Look for the project name anywhere in the file path
+    if (std.mem.indexOf(u8, filename, project_name) != null) {
+        // Additional validation: make sure it's followed by typical source patterns
+        const has_source_pattern =
+            std.mem.indexOf(u8, filename, "/src/") != null or
+            std.mem.indexOf(u8, filename, "/examples/") != null or
+            std.mem.indexOf(u8, filename, "/lib/") != null or
+            std.mem.indexOf(u8, filename, "\\src\\") != null or
+            std.mem.indexOf(u8, filename, "\\examples\\") != null or
+            std.mem.indexOf(u8, filename, "\\lib\\") != null;
+
+        if (has_source_pattern) {
             return true;
         }
     }
@@ -859,4 +934,94 @@ test "frame detection: end-to-end categorization in panic handler" {
     // The important thing is that frames are being categorized
     try std.testing.expect(found_categorized_frame);
     try std.testing.expect(found_non_null_in_app);
+}
+
+test "frame detection: Binary-only Docker/static binary scenarios" {
+    const allocator = std.testing.allocator;
+
+    // Simulate compile-time project root from embedded debug info (no filesystem access)
+    const build_time_root = "/build/workspace/my-app";
+
+    // Test frames with compile-time paths that won't match runtime environment
+    var docker_app_frame = Frame{
+        .filename = try allocator.dupe(u8, "/build/workspace/my-app/src/main.zig"),
+        .function = try allocator.dupe(u8, "main"),
+        .lineno = 42,
+        .colno = 10,
+        .abs_path = try allocator.dupe(u8, "/build/workspace/my-app/src/main.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x1000"),
+    };
+    defer docker_app_frame.deinit(allocator);
+
+    var docker_example_frame = Frame{
+        .filename = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
+        .function = try allocator.dupe(u8, "demoFunction"),
+        .lineno = 15,
+        .colno = 5,
+        .abs_path = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x2000"),
+    };
+    defer docker_example_frame.deinit(allocator);
+
+    var docker_lib_frame = Frame{
+        .filename = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
+        .function = try allocator.dupe(u8, "main"),
+        .lineno = 672,
+        .colno = 0,
+        .abs_path = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x3000"),
+    };
+    defer docker_lib_frame.deinit(allocator);
+
+    // Test with exact project root match
+    categorizeFrame(&docker_app_frame, build_time_root);
+    try std.testing.expectEqual(true, docker_app_frame.in_app);
+
+    categorizeFrame(&docker_example_frame, build_time_root);
+    try std.testing.expectEqual(true, docker_example_frame.in_app);
+
+    categorizeFrame(&docker_lib_frame, build_time_root);
+    try std.testing.expectEqual(false, docker_lib_frame.in_app);
+
+    // Reset frames for pattern-based testing
+    docker_app_frame.in_app = null;
+    docker_example_frame.in_app = null;
+    docker_lib_frame.in_app = null;
+
+    // Test with different runtime root (simulating Docker where paths don't match)
+    const runtime_root = "/app"; // Different from build-time root
+
+    // Should still detect as app frames using pattern matching
+    categorizeFrame(&docker_app_frame, runtime_root);
+    try std.testing.expectEqual(true, docker_app_frame.in_app); // Should work via pattern matching
+
+    categorizeFrame(&docker_example_frame, runtime_root);
+    try std.testing.expectEqual(true, docker_example_frame.in_app); // Should work via pattern matching
+
+    categorizeFrame(&docker_lib_frame, runtime_root);
+    try std.testing.expectEqual(false, docker_lib_frame.in_app); // System frame regardless
+}
+
+test "isFileInProjectPattern matches project names correctly" {
+    const allocator = std.testing.allocator;
+
+    // Test exact project name matching
+    try std.testing.expectEqual(true, isFileInProjectPattern("/build/my-app/src/main.zig", "/workspace/my-app"));
+    try std.testing.expectEqual(true, isFileInProjectPattern("/different/path/my-app/examples/test.zig", "/original/my-app"));
+
+    // Test with common source patterns
+    try std.testing.expectEqual(true, isFileInProjectPattern("/build/sentry-zig/src/client.zig", "/workspace/sentry-zig"));
+    try std.testing.expectEqual(true, isFileInProjectPattern("C:\\build\\sentry-zig\\examples\\demo.zig", "D:\\workspace\\sentry-zig"));
+
+    // Test rejection of non-matching patterns
+    try std.testing.expectEqual(false, isFileInProjectPattern("/usr/lib/zig/std/log.zig", "/workspace/my-app"));
+    try std.testing.expectEqual(false, isFileInProjectPattern("/other-project/src/main.zig", "/workspace/my-app"));
+
+    // Test edge cases
+    try std.testing.expectEqual(false, isFileInProjectPattern("/workspace/my-app-test/build.zig", "/workspace/my-app")); // Partial match but not in src/
+
+    _ = allocator; // Suppress unused variable warning
 }
