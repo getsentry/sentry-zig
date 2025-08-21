@@ -668,6 +668,7 @@ test "frame detection: categorizeFrame sets in_app correctly" {
 
     // Application frame
     var app_frame = Frame{
+        .allocator = allocator,
         .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
         .filename = allocator.dupe(u8, "/home/user/myproject/src/main.zig") catch unreachable,
         .function = allocator.dupe(u8, "main") catch unreachable,
@@ -679,6 +680,7 @@ test "frame detection: categorizeFrame sets in_app correctly" {
 
     // System frame
     var sys_frame = Frame{
+        .allocator = allocator,
         .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
         .filename = allocator.dupe(u8, "/lib/zig/std/debug.zig") catch unreachable,
         .function = allocator.dupe(u8, "std.debug.print") catch unreachable,
@@ -715,6 +717,7 @@ test "frame detection: enhanced symbol extraction with categorization" {
     defer if (project_root) |root| allocator.free(root);
 
     var frame = Frame{
+        .allocator = allocator,
         .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{@returnAddress()}) catch return error.SkipZigTest,
     };
     defer frame.deinit();
@@ -777,6 +780,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
 
     // Test frames with compile-time paths that won't match runtime environment
     var docker_app_frame = Frame{
+        .allocator = allocator,
         .filename = try allocator.dupe(u8, "/build/workspace/my-app/src/main.zig"),
         .function = try allocator.dupe(u8, "main"),
         .lineno = 42,
@@ -788,6 +792,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
     defer docker_app_frame.deinit();
 
     var docker_example_frame = Frame{
+        .allocator = allocator,
         .filename = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
         .function = try allocator.dupe(u8, "demoFunction"),
         .lineno = 15,
@@ -799,6 +804,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
     defer docker_example_frame.deinit();
 
     var docker_lib_frame = Frame{
+        .allocator = allocator,
         .filename = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
         .function = try allocator.dupe(u8, "main"),
         .lineno = 672,
