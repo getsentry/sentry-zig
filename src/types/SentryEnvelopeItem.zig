@@ -26,7 +26,7 @@ pub const SentryEnvelopeItem = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.allocator) |allocator| if (self.header) |header| allocator.free(header);
-        if (self.allocator) |allocator| if (self.data) |data| allocator.free(data);
+        if (self.allocator) |allocator| allocator.free(self.header);
+        if (self.allocator) |allocator| allocator.free(self.data);
     }
 };
