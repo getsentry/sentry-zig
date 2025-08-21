@@ -58,7 +58,7 @@ pub const Scope = struct {
         self.tags.deinit();
 
         if (self.user) |*user| {
-            user.deinit(self.allocator);
+            user.deinit();
         }
 
         if (self.fingerprint) |*fp| {
@@ -183,7 +183,7 @@ pub const Scope = struct {
     /// Set user information
     pub fn setUser(self: *Scope, user: User) void {
         if (self.user) |*old_user| {
-            old_user.deinit(self.allocator);
+            old_user.deinit();
         }
         self.user = user;
     }
@@ -745,11 +745,11 @@ test "Scope - complex fork with all data types" {
     original.level = Level.warning;
 
     const user = User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
-        .email = try allocator.dupe(u8, "test@example.com"),
-        .name = try allocator.dupe(u8, "Test User"),
-        .ip_address = try allocator.dupe(u8, "192.168.1.1"),
+        .id = "123",
+        .username = "testuser",
+        .email = "test@example.com",
+        .name = "Test User",
+        .ip_address = "192.168.1.1",
     };
     original.setUser(user);
 

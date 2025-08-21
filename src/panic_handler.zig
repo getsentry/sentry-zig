@@ -43,13 +43,14 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
     // Optionally include the first address as its own frame to ensure the current function is captured
     if (first_trace_addr) |addr| {
         var first_frame = Frame{
+            .allocator = allocator,
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
         };
         if (debug_info) |di| {
             extractSymbolInfoSentry(allocator, di, addr, &first_frame);
         }
         frames_list.append(first_frame) catch |err| {
-            first_frame.deinit(allocator);
+            first_frame.deinit();
             std.debug.print("Warning: Failed to add first frame due to memory: {}\n", .{err});
         };
     }
@@ -57,6 +58,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
     // Collect all frames dynamically - never fail due to buffer size!
     while (stack_iterator.next()) |return_address| {
         var frame = Frame{
+            .allocator = allocator,
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{return_address}) catch null,
         };
 
@@ -68,7 +70,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
         // Add frame to dynamic list - this should never fail unless out of memory
         frames_list.append(frame) catch |err| {
             // Free strings allocated in this frame since we failed to append it
-            frame.deinit(allocator);
+            frame.deinit();
             // If we truly run out of memory, at least we have what we collected so far
             std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
             break;
@@ -94,7 +96,9 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
                 var i: usize = 0;
                 while (i < collected_frames.len) : (i += 1) {
                     const src = collected_frames[i];
-                    var dst = Frame{};
+                    var dst = Frame{
+                        .allocator = allocator,
+                    };
                     dst.filename = if (src.filename) |s| allocator.dupe(u8, s) catch null else null;
                     dst.abs_path = if (src.abs_path) |s| allocator.dupe(u8, s) catch null else null;
                     dst.function = if (src.function) |s| allocator.dupe(u8, s) catch null else null;
@@ -118,7 +122,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
                 // before releasing the backing ArrayList memory
                 i = 0;
                 while (i < collected_frames.len) : (i += 1) {
-                    collected_frames[i].deinit(allocator);
+                    collected_frames[i].deinit();
                 }
                 std.debug.print("Successfully salvaged {d} frames after allocation failure\n", .{collected_frames.len});
                 return createEventWithFrames(allocator, msg, salvaged);
@@ -127,7 +131,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
                 // Ensure we free any strings allocated inside the collected frames
                 var j: usize = 0;
                 while (j < collected_frames.len) : (j += 1) {
-                    collected_frames[j].deinit(allocator);
+                    collected_frames[j].deinit();
                 }
             }
         }
@@ -150,12 +154,14 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
 fn createEventWithFrames(allocator: Allocator, msg: []const u8, frames: []Frame) Event {
     // Create stacktrace
     const stacktrace = StackTrace{
+        .allocator = allocator,
         .frames = frames,
         .registers = null,
     };
 
     // Create exception
     const exception = Exception{
+        .allocator = allocator,
         .type = allocator.dupe(u8, "panic") catch "panic",
         .value = allocator.dupe(u8, msg) catch msg,
         .module = null,
@@ -166,6 +172,7 @@ fn createEventWithFrames(allocator: Allocator, msg: []const u8, frames: []Frame)
 
     // Create the event
     return Event{
+        .allocator = allocator,
         .event_id = EventId.new(),
         .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
         .platform = "native",
@@ -283,7 +290,7 @@ test "panic_handler: send callback is invoked with created event" {
 
     const test_msg = "unit-test-message";
     var sentry_event = createSentryEvent(allocator, test_msg, @returnAddress());
-    defer sentry_event.deinit(allocator);
+    defer sentry_event.deinit();
 
     sendToSentry(sentry_event);
 
@@ -309,9 +316,8 @@ fn ph_test_four() !Event {
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
@@ -330,9 +336,8 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     const st = ev.exception.?.stacktrace.?;
 
@@ -360,9 +365,8 @@ test "panic_handler: stacktrace works on Windows (addresses and basic symbols)" 
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
@@ -398,9 +402,8 @@ test "panic_handler: Windows function name format detection" {
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     const st = ev.exception.?.stacktrace.?;
 
