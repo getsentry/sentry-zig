@@ -96,8 +96,6 @@ pub const HttpTransport = struct {
             .{ .name = "X-Sentry-Auth", .value = auth_header },
         };
 
-        std.debug.print("headers: {any}", .{headers});
-
         var response_body = std.ArrayList(u8).init(self.allocator);
         defer response_body.deinit();
 

@@ -51,6 +51,18 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addImport("types", types);
     types.addImport("utils", lib_mod);
 
+    // IMPORTANT: Expose the module for external packages
+    // This allows other packages to import sentry_zig via b.dependency().module()
+    _ = b.addModule("sentry_zig", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "types", .module = types },
+            .{ .name = "sentry_build", .module = sentry_build_opts.createModule() },
+        },
+    });
+
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
