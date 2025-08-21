@@ -440,8 +440,74 @@ pub const Scope = struct {
     }
 };
 
-var global_scope: ?*Scope = null;
-var global_scope_mutex = Mutex{};
+/// Thread-safe wrapper for global scope access
+const GlobalScopeWrapper = struct {
+    scope: ?*Scope,
+    mutex: Mutex,
+    is_alive: bool,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{
+            .scope = null,
+            .mutex = Mutex{},
+            .is_alive = true,
+        };
+    }
+
+    /// Get or create the global scope
+    pub fn getOrCreate(self: *Self, allocator: Allocator) !*Scope {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (!self.is_alive) {
+            return error.GlobalScopeShutdown;
+        }
+
+        if (self.scope == null) {
+            const scope = try allocator.create(Scope);
+            scope.* = Scope.init(allocator);
+            self.scope = scope;
+        }
+
+        return self.scope.?;
+    }
+
+    /// Get the global scope if it exists
+    pub fn get(self: *Self) ?*Scope {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (!self.is_alive) {
+            return null;
+        }
+
+        return self.scope;
+    }
+
+    /// Safely deinitialize the global scope
+    pub fn deinit(self: *Self, allocator: Allocator) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        if (self.scope) |scope| {
+            scope.deinit();
+            allocator.destroy(scope);
+            self.scope = null;
+        }
+        self.is_alive = false;
+    }
+
+    /// Check if the global scope is still alive
+    pub fn isAlive(self: *Self) bool {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        return self.is_alive;
+    }
+};
+
+var global_scope_wrapper = GlobalScopeWrapper.init();
 
 threadlocal var thread_isolation_scope: ?*Scope = null;
 threadlocal var thread_current_scope_stack: ?*ArrayList(*Scope) = null;
@@ -460,16 +526,7 @@ const ScopeManager = struct {
     }
 
     fn getGlobalScope(self: *ScopeManager) !*Scope {
-        global_scope_mutex.lock();
-        defer global_scope_mutex.unlock();
-
-        if (global_scope == null) {
-            const scope = try self.allocator.create(Scope);
-            scope.* = Scope.init(self.allocator);
-            global_scope = scope;
-        }
-
-        return global_scope.?;
+        return try global_scope_wrapper.getOrCreate(self.allocator);
     }
 
     fn getIsolationScope(self: *ScopeManager) !*Scope {
@@ -546,15 +603,8 @@ pub fn initScopeManager(allocator: Allocator) !void {
 /// Deinitialize the global scope manager and clean up all resources
 pub fn deinitScopeManager() void {
     if (g_scope_manager) |*manager| {
-        // Clean up global scope
-        global_scope_mutex.lock();
-        defer global_scope_mutex.unlock();
-
-        if (global_scope) |scope| {
-            scope.deinit();
-            manager.allocator.destroy(scope);
-            global_scope = null;
-        }
+        // Clean up global scope using the wrapper
+        global_scope_wrapper.deinit(manager.allocator);
 
         // Note: Thread-local scopes should be cleaned up by their respective threads
         // before calling this function. We can't safely clean them up here.
@@ -673,14 +723,10 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
-    global_scope_mutex.lock();
-    defer global_scope_mutex.unlock();
-
-    if (global_scope) |scope| {
-        scope.deinit();
-        allocator.destroy(scope);
-        global_scope = null;
-    }
+    // Clean up global scope using the wrapper
+    global_scope_wrapper.deinit(allocator);
+    // Reset the wrapper to be alive again for next test
+    global_scope_wrapper = GlobalScopeWrapper.init();
 
     if (thread_isolation_scope) |scope| {
         scope.deinit();
