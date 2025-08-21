@@ -4,7 +4,7 @@ const sentry = @import("sentry_zig");
 // Set up the panic handler to use Sentry's panic handler
 pub const panic = std.debug.FullPanic(sentry.panicHandler);
 
-pub fn main() !void {
+pub fn main() noreturn {
     const allocator = std.heap.page_allocator;
 
     // Initialize Sentry client
@@ -27,20 +27,5 @@ pub fn main() !void {
     std.log.info("Panic Handler Demo - triggering panic to test Sentry integration", .{});
 
     // Trigger a panic through a small never-inlined chain to ensure stack frames in release
-    level1();
-}
-
-noinline fn level1() void {
-    // Force a separate stack frame
-    level2();
-}
-
-noinline fn level2() void {
-    // Force another separate stack frame
-    level3();
-}
-
-noinline fn level3() noreturn {
-    // Only panic; no volatile or heavy work to avoid UB in release
     std.debug.panic("This is a test panic to demonstrate Sentry panic handling!", .{});
 }

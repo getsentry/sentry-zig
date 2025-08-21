@@ -33,14 +33,11 @@ fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) 
 }
 
 fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
-    // Create ArrayList to dynamically grow frames - no size limit!
     var frames_list = std.ArrayList(Frame).init(allocator);
 
-    // We'll create the event at the end after collecting frames
     var stack_iterator = std.debug.StackIterator.init(first_trace_addr, null);
     const debug_info = std.debug.getSelfDebugInfo() catch null;
 
-    // Get project root for frame categorization
     const project_root = getProjectRoot(allocator);
     defer if (project_root) |root| allocator.free(root);
 
@@ -277,30 +274,16 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
     }
 }
 
-// ===== BINARY-ONLY FRAME DETECTION AND CATEGORIZATION SYSTEM =====
-// This system works entirely from debug information embedded in the binary.
-// NO filesystem access - perfect for Docker containers and static deployments.
-
-/// Get the project root directory for frame categorization
-/// BINARY-ONLY: Works entirely from debug information embedded in the binary - NO filesystem access
 fn getProjectRoot(allocator: Allocator) ?[]const u8 {
-    // Try environment variable first (explicit override)
     if (std.process.getEnvVarOwned(allocator, "SENTRY_PROJECT_ROOT")) |root| {
         return root;
     } else |_| {}
 
-    // Infer project root from compile-time embedded source file path
     return inferProjectRootFromEmbeddedDebugInfo(allocator);
 }
 
-/// Infer project root from compile-time debug information embedded in the binary
-/// BINARY-ONLY: Uses only debug paths compiled into the binary - works in Docker/static deployments
 fn inferProjectRootFromEmbeddedDebugInfo(allocator: Allocator) ?[]const u8 {
-    // Get the compile-time source file path embedded in debug info
     const source_file = @src().file;
-
-    // Parse the embedded path to find project structure patterns
-    // This file is at src/panic_handler.zig, so walk up to find project root
 
     if (std.mem.lastIndexOf(u8, source_file, "/src/")) |src_idx| {
         // Found "/src/" in embedded path, project root is everything before it
@@ -357,15 +340,6 @@ fn isValidFrame(frame: *const Frame) bool {
 
 /// Check if a frame belongs to panic handler infrastructure that should be filtered out
 fn isPanicHandlerFrame(filename: ?[]const u8, function: ?[]const u8) bool {
-    if (function) |func| {
-        // Filter out our panic handler functions
-        if (std.mem.eql(u8, func, "panicHandler") or
-            std.mem.eql(u8, func, "handlePanic") or
-            std.mem.eql(u8, func, "createSentryEvent") or
-            std.mem.eql(u8, func, "createEventWithFrames") or
-            std.mem.eql(u8, func, "createMinimalEvent")) return true;
-    }
-
     if (filename) |file| {
         // If it's from panic_handler.zig, check if it's an internal function
         if (std.mem.endsWith(u8, file, "panic_handler.zig") or
@@ -794,11 +768,12 @@ test "frame detection: isSystemFrame correctly identifies system frames" {
 
 test "frame detection: isPanicHandlerFrame correctly identifies panic handler frames" {
     // Panic handler functions should be filtered
-    try std.testing.expect(isPanicHandlerFrame(null, "panicHandler"));
-    try std.testing.expect(isPanicHandlerFrame(null, "handlePanic"));
-    try std.testing.expect(isPanicHandlerFrame(null, "createSentryEvent"));
-    try std.testing.expect(isPanicHandlerFrame(null, "createEventWithFrames"));
-    try std.testing.expect(isPanicHandlerFrame(null, "createMinimalEvent"));
+    // Function-name-only should NOT be filtered (avoid false positives in user code)
+    try std.testing.expect(!isPanicHandlerFrame(null, "panicHandler"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "handlePanic"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createSentryEvent"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createEventWithFrames"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createMinimalEvent"));
 
     // Panic handler file with infrastructure functions
     try std.testing.expect(isPanicHandlerFrame("/path/to/panic_handler.zig", "panicHandler"));
