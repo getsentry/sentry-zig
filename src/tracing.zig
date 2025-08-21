@@ -72,7 +72,6 @@ pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) 
     // Create transaction (root span with no parent)
     const transaction = try Span.init(allocator, op, null);
 
-
     try transaction.setTransactionName(name);
     transaction.trace_id = propagation_context.trace_id;
     transaction.span_id = propagation_context.span_id;
@@ -88,13 +87,11 @@ pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) 
 
     transaction.sampled = .True;
 
-
     if (scope.getCurrentScope() catch null) |current_scope| {
         current_scope.setSpan(transaction);
     }
 
     scope.setTrace(transaction.trace_id, transaction.span_id, transaction.parent_span_id) catch {};
-
 
     current_span = transaction;
 
@@ -125,7 +122,6 @@ pub fn continueFromHeaders(allocator: Allocator, name: []const u8, op: []const u
 
     const should_sample = if (ctx.sampled) |sampled| sampled else shouldSample(client, &ctx);
     transaction.sampled = if (should_sample) .True else .False;
-
 
     if (scope.getCurrentScope() catch null) |current_scope| {
         current_scope.setSpan(transaction);

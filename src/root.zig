@@ -1,9 +1,9 @@
 const std = @import("std");
-const testing = std.testing;
-const Allocator = std.mem.Allocator;
 const types = @import("types");
 const scopes = @import("scope.zig");
 const tracing = @import("tracing.zig");
+const testing = std.testing;
+const Allocator = std.mem.Allocator;
 pub const Event = types.Event;
 pub const EventId = types.EventId;
 pub const SentryOptions = types.SentryOptions;
@@ -18,12 +18,9 @@ pub const TraceContext = types.TraceContext;
 pub const Span = types.Span;
 pub const StackTrace = types.StackTrace;
 pub const Frame = types.Frame;
+pub const ScopeType = scopes.ScopeType;
 
 pub const SentryClient = @import("client.zig").SentryClient;
-
-pub const ScopeType = scopes.ScopeType;
-pub const addBreadcrumb = scopes.addBreadcrumb;
-
 pub const panicHandler = @import("panic_handler.zig").panicHandler;
 pub const stack_trace = @import("utils/stack_trace.zig");
 
@@ -40,14 +37,6 @@ pub fn captureEvent(event: Event) !?EventId {
     return try scopes.captureEvent(event);
 }
 
-pub const startTransaction = tracing.startTransaction;
-pub const continueFromHeaders = tracing.continueFromHeaders;
-pub const finishTransaction = tracing.finishTransaction;
-pub const startSpan = tracing.startSpan;
-pub const getCurrentSpan = tracing.getCurrentSpan;
-pub const getCurrentTransaction = tracing.getCurrentTransaction;
-pub const getSentryTrace = tracing.getSentryTrace;
-
 pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     const event = Event.fromMessage(message, level);
     return captureEvent(event);
@@ -59,6 +48,14 @@ pub fn captureError(err: anyerror) !?EventId {
     errdefer event.deinit();
     return captureEvent(event);
 }
+
+pub const startTransaction = tracing.startTransaction;
+pub const continueFromHeaders = tracing.continueFromHeaders;
+pub const finishTransaction = tracing.finishTransaction;
+pub const startSpan = tracing.startSpan;
+pub const getCurrentSpan = tracing.getCurrentSpan;
+pub const getCurrentTransaction = tracing.getCurrentTransaction;
+pub const getSentryTrace = tracing.getSentryTrace;
 
 test "compile and test everything" {
     _ = @import("panic_handler.zig");

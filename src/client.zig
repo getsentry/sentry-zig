@@ -130,7 +130,6 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-
         if (prepared.sdk == null) {
             prepared.sdk = SDK{
                 .name = "sentry.zig",
@@ -139,11 +138,9 @@ pub const SentryClient = struct {
             };
         }
 
-
         if (prepared.environment == null and self.options.environment != null) {
             prepared.environment = self.options.environment;
         }
-
 
         if (prepared.release == null and self.options.release != null) {
             prepared.release = self.options.release;
@@ -265,7 +262,6 @@ test "event ID generation is UUID v4 compatible" {
     // Generate several IDs to ensure they're unique and properly formatted
     var seen_ids = std.hash_map.StringHashMap(void).init(std.testing.allocator);
     defer {
-
         var iter = seen_ids.iterator();
         while (iter.next()) |entry| {
             std.testing.allocator.free(entry.key_ptr.*);

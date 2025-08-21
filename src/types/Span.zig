@@ -269,7 +269,6 @@ pub const Span = struct {
             old_value.deinit();
         }
 
-
         var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
         var context_iterator = context_data.iterator();
         while (context_iterator.next()) |entry| {

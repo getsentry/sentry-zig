@@ -100,7 +100,6 @@ pub const Scope = struct {
     pub fn fork(self: *const Scope) !Scope {
         var new_scope = Scope.init(self.allocator);
 
-
         new_scope.level = self.level;
 
         var tag_iterator = self.tags.iterator();
@@ -145,7 +144,6 @@ pub const Scope = struct {
             try new_scope.breadcrumbs.append(new_crumb);
         }
 
-
         var context_iterator = self.contexts.iterator();
         while (context_iterator.next()) |entry| {
             const context_key = try self.allocator.dupe(u8, entry.key_ptr.*);
@@ -160,7 +158,6 @@ pub const Scope = struct {
 
             try new_scope.contexts.put(context_key, new_context);
         }
-
 
         new_scope.propagation_context = self.propagation_context.clone();
 
@@ -226,7 +223,6 @@ pub const Scope = struct {
             oldest.deinit(self.allocator);
         }
 
-
         var cloned_breadcrumb = Breadcrumb{
             .message = try self.allocator.dupe(u8, breadcrumb.message),
             .type = breadcrumb.type,
@@ -235,7 +231,6 @@ pub const Scope = struct {
             .timestamp = breadcrumb.timestamp,
             .data = null,
         };
-
 
         if (breadcrumb.data) |data| {
             cloned_breadcrumb.data = std.StringHashMap([]const u8).init(self.allocator);
@@ -273,7 +268,6 @@ pub const Scope = struct {
             }
             old_value.deinit();
         }
-
 
         var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
         var context_iterator = context_data.iterator();
@@ -342,7 +336,6 @@ pub const Scope = struct {
 
         var all_breadcrumbs = try self.allocator.alloc(Breadcrumb, total_count);
 
-
         if (event.breadcrumbs) |existing| {
             for (existing.values, 0..) |crumb, i| {
                 all_breadcrumbs[i] = crumb;
@@ -351,9 +344,7 @@ pub const Scope = struct {
             self.allocator.free(existing.values);
         }
 
-
         for (self.breadcrumbs.items, existing_count..) |crumb, i| {
-
             var cloned_crumb = Breadcrumb{
                 .message = try self.allocator.dupe(u8, crumb.message),
                 .type = crumb.type,
