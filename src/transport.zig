@@ -26,12 +26,12 @@ pub const HttpTransport = struct {
     options: SentryOptions,
     allocator: Allocator,
 
-    pub fn init(allocator: Allocator, options: SentryOptions) HttpTransport {
+    pub fn init(allocator: Allocator, options: *const SentryOptions) HttpTransport {
         const transport = HttpTransport{
             .client = std.http.Client{
                 .allocator = allocator,
             },
-            .options = options,
+            .options = options.*,
             .allocator = allocator,
         };
 
@@ -176,7 +176,7 @@ test "Envelope - Serialize empty envelope" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var transport = HttpTransport.init(allocator, SentryOptions{});
+    var transport = HttpTransport.init(allocator, &SentryOptions{});
 
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
@@ -199,7 +199,7 @@ test "Envelope - Serialize event-id header" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var transport = HttpTransport.init(allocator, SentryOptions{});
+    var transport = HttpTransport.init(allocator, &SentryOptions{});
 
     const cstr: [*:0]const u8 = "24f9202c3c9f44deabef9ed3132b41e4";
     var event_id: [32]u8 = undefined;
@@ -236,7 +236,7 @@ test "Envelope - Serialize envelope with empty event" {
         },
     };
 
-    var transport = HttpTransport.init(allocator, SentryOptions{});
+    var transport = HttpTransport.init(allocator, &SentryOptions{});
 
     const payload = try transport.envelopeToPayload(SentryEnvelope{
         .header = SentryEnvelopeHeader{
@@ -256,7 +256,7 @@ test "Envelope - Serialize full envelope item from event" {
     const allocator = gpa.allocator();
 
     var event = try test_utils.createFullTestEvent(allocator);
-    defer event.deinit(allocator);
+    defer event.deinit();
 
     // Override dynamic fields with fixed values for predictable testing
     event.event_id = EventId{ .value = "24f9202c3c9f44deabef9ed3132b41e4".* };
@@ -269,7 +269,7 @@ test "Envelope - Serialize full envelope item from event" {
         }
     }
 
-    var transport = HttpTransport.init(allocator, SentryOptions{});
+    var transport = HttpTransport.init(allocator, &SentryOptions{});
     const json_result = try transport.envelopeFromEvent(event);
     defer allocator.free(json_result.data);
     const json_string = json_result.data;
