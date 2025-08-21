@@ -860,14 +860,14 @@ pub const Event = struct {
 
         // Create exception
         const exception = Exception{
-            .type = allocator.dupe(u8, error_name) catch error_name,
-            .value = allocator.dupe(u8, error_name) catch error_name,
+            .type = error_name,
+            .value = error_name,
             .module = null,
-            .thread_id = null,
+            .thread_id = @as(u64, @intCast(std.Thread.getCurrentId())),
             .stacktrace = stacktrace,
             .mechanism = Mechanism{
-                .type = allocator.dupe(u8, "generic") catch "generic",
-                .handled = false,
+                .type = "error",
+                .handled = true,
             },
         };
 
@@ -877,7 +877,7 @@ pub const Event = struct {
             .platform = "native",
             .level = Level.@"error",
             .exception = exception,
-            .logger = allocator.dupe(u8, "error_handler") catch "error_handler",
+            .logger = "error_handler",
         };
     }
 };
