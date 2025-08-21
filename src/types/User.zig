@@ -37,12 +37,14 @@ pub const User = struct {
         };
     }
 
-    pub fn deinit(self: *const @This()) void {
-        if (self.allocator) |allocator| if (self.id) |id| allocator.free(id);
-        if (self.allocator) |allocator| if (self.username) |username| allocator.free(username);
-        if (self.allocator) |allocator| if (self.email) |email| allocator.free(email);
-        if (self.allocator) |allocator| if (self.name) |name| allocator.free(name);
-        if (self.allocator) |allocator| if (self.ip_address) |ip| allocator.free(ip);
+    pub fn deinit(self: *@This()) void {
+        if (self.allocator) |allocator| {
+            if (self.id) |id| allocator.free(id);
+            if (self.username) |username| allocator.free(username);
+            if (self.email) |email| allocator.free(email);
+            if (self.name) |name| allocator.free(name);
+            if (self.ip_address) |ip| allocator.free(ip);
+        }
     }
 
     pub fn jsonStringify(self: @This(), jw: anytype) !void {
@@ -92,17 +94,18 @@ test "User - clone functionality" {
 
     // Create original user
     var original = User{
+        .allocator = allocator,
         .id = try allocator.dupe(u8, "123"),
         .username = try allocator.dupe(u8, "testuser"),
         .email = try allocator.dupe(u8, "test@example.com"),
         .name = try allocator.dupe(u8, "Test User"),
         .ip_address = try allocator.dupe(u8, "192.168.1.1"),
     };
-    defer original.deinit(allocator);
+    defer original.deinit();
 
     // Clone the user
     var cloned = try original.clone(allocator);
-    defer cloned.deinit(allocator);
+    defer cloned.deinit();
 
     // Verify all fields were cloned
     try testing.expectEqualStrings("123", cloned.id.?);
@@ -123,17 +126,18 @@ test "User - clone with null fields" {
 
     // Create user with some null fields
     var original = User{
+        .allocator = allocator,
         .id = try allocator.dupe(u8, "456"),
         .username = null,
         .email = try allocator.dupe(u8, "partial@example.com"),
         .name = null,
         .ip_address = null,
     };
-    defer original.deinit(allocator);
+    defer original.deinit();
 
     // Clone the user
     var cloned = try original.clone(allocator);
-    defer cloned.deinit(allocator);
+    defer cloned.deinit();
 
     // Verify fields were cloned correctly
     try testing.expectEqualStrings("456", cloned.id.?);

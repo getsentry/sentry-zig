@@ -617,9 +617,24 @@ pub fn initScopeManager(allocator: Allocator) !void {
     g_scope_manager = ScopeManager.init(allocator);
 }
 
-pub fn deinitScopeManager(allocator: Allocator) void {
-    resetAllScopeState(allocator);
-    g_scope_manager = null;
+/// Deinitialize the global scope manager and clean up all resources
+pub fn deinitScopeManager() void {
+    if (g_scope_manager) |*manager| {
+        // Clean up global scope
+        global_scope_mutex.lock();
+        defer global_scope_mutex.unlock();
+
+        if (global_scope) |scope| {
+            scope.deinit();
+            manager.allocator.destroy(scope);
+            global_scope = null;
+        }
+
+        // Note: Thread-local scopes should be cleaned up by their respective threads
+        // before calling this function. We can't safely clean them up here.
+
+        g_scope_manager = null;
+    }
 }
 
 pub fn getAllocator() !Allocator {
