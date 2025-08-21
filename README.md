@@ -1,12 +1,10 @@
-# 🚀 Sentry for Zig
-
-_Bad software is everywhere, and we're tired of it. Sentry is on a mission to help developers write better software faster, so we can get back to enjoying technology. If you want to join us **[Check out our open positions](https://sentry.io/careers/)**._
+# Experimental Sentry for Zig
 
 [![Build Status](https://img.shields.io/badge/build-passing-green)](https://github.com/getsentry/sentry-zig)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1+-blue)](https://ziglang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Welcome to the official **Zig SDK** for [**Sentry**](https://sentry.io).
+Welcome to the experimental **Zig SDK** for [**Sentry**](https://sentry.io).
 
 > **⚠️ Experimental SDK**: This SDK is currently experimental and not production-ready. It was developed during a Hackweek project and is intended for testing and feedback purposes.
 
