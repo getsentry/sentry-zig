@@ -39,7 +39,7 @@ pub const Scope = struct {
     pub fn init(allocator: Allocator) Scope {
         return Scope{
             .allocator = allocator,
-            .level = Level.info, // Default level
+            .level = Level.info,
             .tags = std.StringHashMap([]const u8).init(allocator),
             .user = null,
             .fingerprint = null,
@@ -188,6 +188,24 @@ pub const Scope = struct {
         self.user = user;
     }
 
+    /// Set fingerprint (clones all strings)
+    pub fn setFingerprint(self: *Scope, fingerprint_items: []const []const u8) !void {
+        // Clean up existing fingerprint
+        if (self.fingerprint) |*fp| {
+            for (fp.items) |item| {
+                self.allocator.free(item);
+            }
+            fp.deinit();
+        }
+
+        // Create new fingerprint with cloned strings
+        self.fingerprint = ArrayList([]const u8).init(self.allocator);
+        for (fingerprint_items) |item| {
+            const cloned_item = try self.allocator.dupe(u8, item);
+            try self.fingerprint.?.append(cloned_item);
+        }
+    }
+
     /// Add a breadcrumb
     pub fn addBreadcrumb(self: *Scope, breadcrumb: Breadcrumb) !void {
         if (self.breadcrumbs.items.len >= MAX_BREADCRUMBS) {
@@ -195,7 +213,28 @@ pub const Scope = struct {
             oldest.deinit(self.allocator);
         }
 
-        try self.breadcrumbs.append(breadcrumb);
+        // Clone breadcrumb strings to ensure ownership
+        var cloned_breadcrumb = Breadcrumb{
+            .message = try self.allocator.dupe(u8, breadcrumb.message),
+            .type = breadcrumb.type,
+            .level = breadcrumb.level,
+            .category = if (breadcrumb.category) |cat| try self.allocator.dupe(u8, cat) else null,
+            .timestamp = breadcrumb.timestamp,
+            .data = null,
+        };
+
+        // Clone data HashMap if present
+        if (breadcrumb.data) |data| {
+            cloned_breadcrumb.data = std.StringHashMap([]const u8).init(self.allocator);
+            var data_iterator = data.iterator();
+            while (data_iterator.next()) |entry| {
+                const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+                const value = try self.allocator.dupe(u8, entry.value_ptr.*);
+                try cloned_breadcrumb.data.?.put(key, value);
+            }
+        }
+
+        try self.breadcrumbs.append(cloned_breadcrumb);
     }
 
     /// Clear all breadcrumbs
@@ -222,7 +261,16 @@ pub const Scope = struct {
             old_value.deinit();
         }
 
-        try self.contexts.put(owned_key, context_data);
+        // Clone all strings in the context data
+        var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
+        var context_iterator = context_data.iterator();
+        while (context_iterator.next()) |entry| {
+            const cloned_key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            const cloned_value = try self.allocator.dupe(u8, entry.value_ptr.*);
+            try cloned_context.put(cloned_key, cloned_value);
+        }
+
+        try self.contexts.put(owned_key, cloned_context);
     }
 
     fn applyToEvent(self: *const Scope, event: *Event) !void {
@@ -652,22 +700,24 @@ test "Scope - comprehensive API testing" {
     try testing.expectEqualStrings("test", isolation_scope.tags.get("environment").?);
     try testing.expectEqualStrings("1.0.0", isolation_scope.tags.get("version").?);
 
-    try setUser(User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
-        .email = try allocator.dupe(u8, "test@example.com"),
-        .name = try allocator.dupe(u8, "Test User"),
-        .ip_address = try allocator.dupe(u8, "127.0.0.1"),
-    });
+    const test_user = User{
+        .id = "123",
+        .username = "testuser",
+        .email = "test@example.com",
+        .name = "Test User",
+    };
+    try setUser(test_user);
     try testing.expect(isolation_scope.user != null);
     try testing.expectEqualStrings("123", isolation_scope.user.?.id.?);
     try testing.expectEqualStrings("testuser", isolation_scope.user.?.username.?);
     try testing.expectEqualStrings("test@example.com", isolation_scope.user.?.email.?);
+    try testing.expectEqualStrings("Test User", isolation_scope.user.?.name.?);
 
     var device_context = std.StringHashMap([]const u8).init(allocator);
-    try device_context.put(try allocator.dupe(u8, "name"), try allocator.dupe(u8, "iPhone"));
-    try device_context.put(try allocator.dupe(u8, "model"), try allocator.dupe(u8, "iPhone 12"));
-    try device_context.put(try allocator.dupe(u8, "os"), try allocator.dupe(u8, "iOS 15.0"));
+    defer device_context.deinit(); // Clean up the original HashMap
+    try device_context.put("name", "iPhone");
+    try device_context.put("model", "iPhone 12");
+    try device_context.put("os", "iOS 15.0");
     try setContext("device", device_context);
     try testing.expect(isolation_scope.contexts.count() == 1);
     const stored_context = isolation_scope.contexts.get("device").?;
@@ -676,18 +726,18 @@ test "Scope - comprehensive API testing" {
     try testing.expectEqualStrings("iOS 15.0", stored_context.get("os").?);
 
     try addBreadcrumb(Breadcrumb{
-        .message = try allocator.dupe(u8, "User clicked button"),
+        .message = "User clicked button",
         .type = BreadcrumbType.user,
         .level = Level.info,
-        .category = try allocator.dupe(u8, "ui"),
+        .category = "ui",
         .timestamp = std.time.timestamp(),
         .data = null,
     });
     try addBreadcrumb(Breadcrumb{
-        .message = try allocator.dupe(u8, "API call made"),
+        .message = "API call made",
         .type = BreadcrumbType.http,
         .level = Level.debug,
-        .category = try allocator.dupe(u8, "api"),
+        .category = "api",
         .timestamp = std.time.timestamp(),
         .data = null,
     });
@@ -718,6 +768,8 @@ test "Scope - breadcrumb limit enforcement" {
     var i: usize = 0;
     while (i <= Scope.MAX_BREADCRUMBS + 5) : (i += 1) {
         const message = try std.fmt.allocPrint(allocator, "Breadcrumb {}", .{i});
+        defer allocator.free(message); // Free the original string after addBreadcrumb clones it
+
         const breadcrumb = Breadcrumb{
             .message = message,
             .type = BreadcrumbType.default,
@@ -753,25 +805,25 @@ test "Scope - complex fork with all data types" {
     };
     original.setUser(user);
 
-    original.fingerprint = std.ArrayList([]const u8).init(allocator);
-    try original.fingerprint.?.append(try allocator.dupe(u8, "fp1"));
-    try original.fingerprint.?.append(try allocator.dupe(u8, "fp2"));
+    try original.setFingerprint(&[_][]const u8{ "fp1", "fp2" });
 
     var data = std.StringHashMap([]const u8).init(allocator);
-    try data.put(try allocator.dupe(u8, "key1"), try allocator.dupe(u8, "value1"));
+    defer data.deinit(); // Clean up original HashMap
+    try data.put("key1", "value1");
 
     const breadcrumb = Breadcrumb{
-        .message = try allocator.dupe(u8, "Test breadcrumb"),
+        .message = "Test breadcrumb",
         .type = BreadcrumbType.navigation,
         .level = Level.info,
-        .category = try allocator.dupe(u8, "test"),
+        .category = "test",
         .timestamp = std.time.timestamp(),
         .data = data,
     };
     try original.addBreadcrumb(breadcrumb);
 
     var context = std.StringHashMap([]const u8).init(allocator);
-    try context.put(try allocator.dupe(u8, "platform"), try allocator.dupe(u8, "linux"));
+    defer context.deinit(); // Clean up original HashMap
+    try context.put("platform", "linux");
     try original.setContext("os", context);
 
     var forked = try original.fork();
@@ -929,8 +981,8 @@ test "Scope - withScope workflow and restoration" {
     try setLevel(Level.@"error");
     try setTag("base_tag", "base_value");
     try setUser(User{
-        .id = try allocator.dupe(u8, "original_user"),
-        .username = try allocator.dupe(u8, "original"),
+        .id = "original_user",
+        .username = "original",
         .email = null,
         .name = null,
         .ip_address = null,
@@ -956,10 +1008,9 @@ test "Scope - withScope workflow and restoration" {
 
             try scope.setTag("scoped_tag", "scoped_value");
             scope.level = Level.debug;
-            const test_allocator = try getAllocator();
             scope.setUser(User{
-                .id = try test_allocator.dupe(u8, "scoped_user"),
-                .username = try test_allocator.dupe(u8, "scoped"),
+                .id = "scoped_user",
+                .username = "scoped",
                 .email = null,
                 .name = null,
                 .ip_address = null,
