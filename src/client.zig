@@ -174,7 +174,7 @@ pub const SentryClient = struct {
         self.close(null);
         self.transport.deinit();
         self.options.deinit();
-        
+
         // Clean up scope state
         scope.deinitScopeManager(self.allocator);
     }
