@@ -81,20 +81,20 @@ pub fn getActiveSpan() ?*Span {
 fn shouldSample(client: *const SentryClient, ctx: *const TransactionContext) bool {
     // 1. Use parent sampling decision if available
     if (ctx.sampled) |sampled| {
-        std.log.debug("Using parent sampling decision: {}", .{sampled});
+        std.log.debug("Using parent sampling decision: {?}", .{sampled});
         return sampled;
     }
 
-    // 2. Use traces_sample_rate
-    const rate = client.options.traces_sample_rate orelse return .{ .should_sample = false, .sample_rate = 0.0 };
+    // 2. Use sample_rate
+    const rate = client.options.sample_rate orelse return false;
 
     if (rate <= 0.0) {
-        std.log.debug("Dropping transaction: traces_sample_rate is {d}", .{rate});
-        return .{ .should_sample = false, .sample_rate = rate };
+        std.log.debug("Dropping transaction: sample_rate is {d}", .{rate});
+        return false;
     }
 
     if (rate >= 1.0) {
-        return .{ .should_sample = true, .sample_rate = rate };
+        return true;
     }
 
     return generateSampleDecision(rate);
@@ -121,7 +121,7 @@ pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) 
     const propagation_context = scope.getPropagationContext() catch PropagationContext.generate();
     const ctx = TransactionContext.fromPropagationContext(name, op, propagation_context);
 
-    if (!shouldSample(client, &ctx, null)) {
+    if (!shouldSample(client, &ctx)) {
         return null;
     }
 
@@ -159,7 +159,7 @@ pub fn startTransactionFromHeader(allocator: Allocator, name: []const u8, op: []
     try ctx.updateFromHeader(sentry_trace);
 
     // TODO: Parse baggage header for parent sample rate
-    if (!shouldSample(client, &ctx, null)) {
+    if (!shouldSample(client, &ctx)) {
         return null;
     }
 
@@ -332,7 +332,7 @@ test "transaction sampling" {
 
     // Mock client with zero sample rate
     const options = types.SentryOptions{
-        .traces_sample_rate = 0.0,
+        .sample_rate = 0.0,
     };
     var client = try SentryClient.init(allocator, null, options);
     defer client.transport.deinit();
@@ -351,7 +351,7 @@ test "transaction creation with sampling" {
     defer scope.resetAllScopeState(allocator);
 
     const options = types.SentryOptions{
-        .traces_sample_rate = 1.0,
+        .sample_rate = 1.0,
     };
     var client = try SentryClient.init(allocator, null, options);
     defer client.transport.deinit();

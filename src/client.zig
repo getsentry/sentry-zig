@@ -58,7 +58,7 @@ pub const SentryClient = struct {
             if (opts.environment) |env| {
                 std.log.debug("Environment: {s}", .{env});
             }
-            std.log.debug("Sample rate: {d}", .{opts.sample_rate});
+            std.log.debug("Sample rate: {?}", .{opts.sample_rate});
         }
 
         return client;

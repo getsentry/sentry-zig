@@ -10,14 +10,13 @@ pub const SentryOptions = struct {
     release: ?[]const u8 = null,
     debug: bool = false,
     send_default_pii: bool = false,
-    traces_sample_rate: ?f64 = 0.0,
+    sample_rate: ?f64 = 0.0,
     // TODO: Add traces_sampler callback once we solve the anytype comptime issue
     trace_propagation_targets: ?[][]const u8 = null, // URLs to attach trace headers to
     strict_trace_continuation: bool = false, // Validate org ID for trace continuation
     org_id: ?[]const u8 = null, // Organization ID for trace validation
 
-
-		pub fn init(
+    pub fn init(
         allocator: Allocator,
         dsn: ?Dsn,
         environment: ?[]const u8,
