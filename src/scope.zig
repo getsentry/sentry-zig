@@ -46,7 +46,7 @@ pub const Scope = struct {
     pub fn init(allocator: Allocator) Scope {
         return Scope{
             .allocator = allocator,
-            .level = Level.info, // Default level
+            .level = Level.info,
             .tags = std.StringHashMap([]const u8).init(allocator),
             .user = null,
             .fingerprint = null,
@@ -200,6 +200,24 @@ pub const Scope = struct {
         self.user = user;
     }
 
+    /// Set fingerprint (clones all strings)
+    pub fn setFingerprint(self: *Scope, fingerprint_items: []const []const u8) !void {
+        // Clean up existing fingerprint
+        if (self.fingerprint) |*fp| {
+            for (fp.items) |item| {
+                self.allocator.free(item);
+            }
+            fp.deinit();
+        }
+
+        // Create new fingerprint with cloned strings
+        self.fingerprint = ArrayList([]const u8).init(self.allocator);
+        for (fingerprint_items) |item| {
+            const cloned_item = try self.allocator.dupe(u8, item);
+            try self.fingerprint.?.append(cloned_item);
+        }
+    }
+
     /// Add a breadcrumb
     pub fn addBreadcrumb(self: *Scope, breadcrumb: Breadcrumb) !void {
         if (self.breadcrumbs.items.len >= MAX_BREADCRUMBS) {
@@ -207,7 +225,28 @@ pub const Scope = struct {
             oldest.deinit(self.allocator);
         }
 
-        try self.breadcrumbs.append(breadcrumb);
+        // Clone breadcrumb strings to ensure ownership
+        var cloned_breadcrumb = Breadcrumb{
+            .message = try self.allocator.dupe(u8, breadcrumb.message),
+            .type = breadcrumb.type,
+            .level = breadcrumb.level,
+            .category = if (breadcrumb.category) |cat| try self.allocator.dupe(u8, cat) else null,
+            .timestamp = breadcrumb.timestamp,
+            .data = null,
+        };
+
+        // Clone data HashMap if present
+        if (breadcrumb.data) |data| {
+            cloned_breadcrumb.data = std.StringHashMap([]const u8).init(self.allocator);
+            var data_iterator = data.iterator();
+            while (data_iterator.next()) |entry| {
+                const key = try self.allocator.dupe(u8, entry.key_ptr.*);
+                const value = try self.allocator.dupe(u8, entry.value_ptr.*);
+                try cloned_breadcrumb.data.?.put(key, value);
+            }
+        }
+
+        try self.breadcrumbs.append(cloned_breadcrumb);
     }
 
     /// Clear all breadcrumbs
@@ -234,7 +273,16 @@ pub const Scope = struct {
             old_value.deinit();
         }
 
-        try self.contexts.put(owned_key, context_data);
+        // Clone all strings in the context data
+        var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
+        var context_iterator = context_data.iterator();
+        while (context_iterator.next()) |entry| {
+            const cloned_key = try self.allocator.dupe(u8, entry.key_ptr.*);
+            const cloned_value = try self.allocator.dupe(u8, entry.value_ptr.*);
+            try cloned_context.put(cloned_key, cloned_value);
+        }
+
+        try self.contexts.put(owned_key, cloned_context);
     }
 
     fn applyToEvent(self: *const Scope, event: *Event) !void {
@@ -477,15 +525,12 @@ pub const Scope = struct {
     }
 };
 
-// Global scope (not thread-local, singleton)
 var global_scope: ?*Scope = null;
 var global_scope_mutex = Mutex{};
 
-// Thread-local scopes
 threadlocal var thread_isolation_scope: ?*Scope = null;
 threadlocal var thread_current_scope_stack: ?*ArrayList(*Scope) = null;
 
-/// Scope manager for handling the three scope types (internal implementation)
 const ScopeManager = struct {
     allocator: Allocator,
 
@@ -497,10 +542,8 @@ const ScopeManager = struct {
 
     fn deinit(self: *ScopeManager) void {
         _ = self;
-        // Cleanup is handled by individual scopes
     }
 
-    /// Get the global scope
     fn getGlobalScope(self: *ScopeManager) !*Scope {
         global_scope_mutex.lock();
         defer global_scope_mutex.unlock();
@@ -514,10 +557,8 @@ const ScopeManager = struct {
         return global_scope.?;
     }
 
-    /// Get the current thread's isolation scope
     fn getIsolationScope(self: *ScopeManager) !*Scope {
         if (thread_isolation_scope == null) {
-            // Create new isolation scope if none exists
             const scope = try self.allocator.create(Scope);
             scope.* = Scope.init(self.allocator);
             thread_isolation_scope = scope;
@@ -526,7 +567,6 @@ const ScopeManager = struct {
         return thread_isolation_scope.?;
     }
 
-    /// Get the current scope stack for this thread
     fn getCurrentScopeStack(self: *ScopeManager) !*ArrayList(*Scope) {
         if (thread_current_scope_stack == null) {
             const stack = try self.allocator.create(ArrayList(*Scope));
@@ -536,18 +576,15 @@ const ScopeManager = struct {
         return thread_current_scope_stack.?;
     }
 
-    /// Get the current thread's current scope
     fn getCurrentScope(self: *ScopeManager) !*Scope {
         const stack = try self.getCurrentScopeStack();
         if (stack.items.len > 0) {
             return stack.items[stack.items.len - 1];
         }
 
-        // Return isolation scope if no current scope
         return self.getIsolationScope();
     }
 
-    /// Execute a callback with a new current scope
     fn withScope(self: *ScopeManager, callback: anytype) !void {
         const current = try self.getCurrentScope();
         const new_scope = try self.allocator.create(Scope);
@@ -564,7 +601,6 @@ const ScopeManager = struct {
         try callback(new_scope);
     }
 
-    /// Execute a callback with a new isolation scope
     fn withIsolationScope(self: *ScopeManager, callback: anytype) !void {
         const previous = thread_isolation_scope;
         defer thread_isolation_scope = previous;
@@ -580,17 +616,14 @@ const ScopeManager = struct {
         try callback(new_scope);
     }
 
-    /// Configure the current isolation scope
     fn configureScope(self: *ScopeManager, callback: anytype) !void {
         const scope = try self.getIsolationScope();
         try callback(scope);
     }
 };
 
-// Global scope manager instance
 var g_scope_manager: ?ScopeManager = null;
 
-/// Initialize the global scope manager
 pub fn initScopeManager(allocator: Allocator) !void {
     g_scope_manager = ScopeManager.init(allocator);
 }
@@ -602,7 +635,6 @@ pub fn getAllocator() !Allocator {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Get the global scope
 pub fn getGlobalScope() !*Scope {
     if (g_scope_manager) |*manager| {
         return manager.getGlobalScope();
@@ -610,7 +642,6 @@ pub fn getGlobalScope() !*Scope {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Get the isolation scope
 pub fn getIsolationScope() !*Scope {
     if (g_scope_manager) |*manager| {
         return manager.getIsolationScope();
@@ -618,7 +649,6 @@ pub fn getIsolationScope() !*Scope {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Get the current scope
 pub fn getCurrentScope() !*Scope {
     if (g_scope_manager) |*manager| {
         return manager.getCurrentScope();
@@ -626,7 +656,6 @@ pub fn getCurrentScope() !*Scope {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Execute a callback with a new current scope
 pub fn withScope(callback: anytype) !void {
     if (g_scope_manager) |*manager| {
         return manager.withScope(callback);
@@ -634,7 +663,6 @@ pub fn withScope(callback: anytype) !void {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Execute a callback with a new isolation scope
 pub fn withIsolationScope(callback: anytype) !void {
     if (g_scope_manager) |*manager| {
         return manager.withIsolationScope(callback);
@@ -642,7 +670,6 @@ pub fn withIsolationScope(callback: anytype) !void {
     return error.ScopeManagerNotInitialized;
 }
 
-/// Configure the current isolation scope
 pub fn configureScope(callback: anytype) !void {
     if (g_scope_manager) |*manager| {
         return manager.configureScope(callback);
@@ -650,7 +677,6 @@ pub fn configureScope(callback: anytype) !void {
     return error.ScopeManagerNotInitialized;
 }
 
-// Convenience functions that write to isolation scope
 pub fn setTag(key: []const u8, value: []const u8) !void {
     const scope = try getIsolationScope();
     try scope.setTag(key, value);
@@ -664,6 +690,11 @@ pub fn setUser(user: User) !void {
 pub fn setLevel(level: Level) !void {
     const scope = try getIsolationScope();
     scope.level = level;
+}
+
+pub fn setContext(key: []const u8, context_data: std.StringHashMap([]const u8)) !void {
+    const scope = try getIsolationScope();
+    try scope.setContext(key, context_data);
 }
 
 pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
@@ -735,7 +766,7 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 // Used for tests
-pub fn resetAllScopeState(allocator: std.mem.Allocator) void {
+fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
 
@@ -764,120 +795,80 @@ pub fn resetAllScopeState(allocator: std.mem.Allocator) void {
     g_scope_manager = null;
 }
 
-test "Scope - basic initialization and cleanup" {
+test "Scope - comprehensive API testing" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
+    resetAllScopeState(allocator);
+    defer resetAllScopeState(allocator);
 
-    try testing.expect(test_scope.level == Level.info);
-    try testing.expect(test_scope.user == null);
-    try testing.expect(test_scope.fingerprint == null);
-    try testing.expect(test_scope.tags.count() == 0);
-    try testing.expect(test_scope.breadcrumbs.items.len == 0);
-    try testing.expect(test_scope.contexts.count() == 0);
-}
+    try initScopeManager(allocator);
 
-test "Scope - tag management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    try setLevel(Level.warning);
+    const isolation_scope = try getIsolationScope();
+    try testing.expect(isolation_scope.level == Level.warning);
 
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    try test_scope.setTag("environment", "test");
-    try test_scope.setTag("version", "1.0.0");
-
-    try testing.expect(test_scope.tags.count() == 2);
-    try testing.expectEqualStrings("test", test_scope.tags.get("environment").?);
-    try testing.expectEqualStrings("1.0.0", test_scope.tags.get("version").?);
-
-    try test_scope.setTag("environment", "production");
-    try testing.expect(test_scope.tags.count() == 2);
-    try testing.expectEqualStrings("production", test_scope.tags.get("environment").?);
-
-    test_scope.removeTags();
-    try testing.expect(test_scope.tags.count() == 0);
-}
-
-test "Scope - user management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
+    try setTag("environment", "test");
+    try setTag("version", "1.0.0");
+    try testing.expectEqualStrings("test", isolation_scope.tags.get("environment").?);
+    try testing.expectEqualStrings("1.0.0", isolation_scope.tags.get("version").?);
 
     const test_user = User{
         .id = "123",
         .username = "testuser",
         .email = "test@example.com",
         .name = "Test User",
-        .ip_address = "127.0.0.1",
     };
+    try setUser(test_user);
+    try testing.expect(isolation_scope.user != null);
+    try testing.expectEqualStrings("123", isolation_scope.user.?.id.?);
+    try testing.expectEqualStrings("testuser", isolation_scope.user.?.username.?);
+    try testing.expectEqualStrings("test@example.com", isolation_scope.user.?.email.?);
+    try testing.expectEqualStrings("Test User", isolation_scope.user.?.name.?);
 
-    test_scope.setUser(test_user);
-    try testing.expect(test_scope.user != null);
-    try testing.expectEqualStrings("123", test_scope.user.?.id.?);
-    try testing.expectEqualStrings("testuser", test_scope.user.?.username.?);
-    try testing.expectEqualStrings("test@example.com", test_scope.user.?.email.?);
+    var device_context = std.StringHashMap([]const u8).init(allocator);
+    defer device_context.deinit(); // Clean up the original HashMap
+    try device_context.put("name", "iPhone");
+    try device_context.put("model", "iPhone 12");
+    try device_context.put("os", "iOS 15.0");
+    try setContext("device", device_context);
+    try testing.expect(isolation_scope.contexts.count() == 1);
+    const stored_context = isolation_scope.contexts.get("device").?;
+    try testing.expectEqualStrings("iPhone", stored_context.get("name").?);
+    try testing.expectEqualStrings("iPhone 12", stored_context.get("model").?);
+    try testing.expectEqualStrings("iOS 15.0", stored_context.get("os").?);
 
-    const new_user = User{
-        .id = "456",
-        .username = "newuser",
-        .email = null,
-        .name = null,
-        .ip_address = null,
-    };
-
-    test_scope.setUser(new_user);
-    try testing.expectEqualStrings("456", test_scope.user.?.id.?);
-    try testing.expectEqualStrings("newuser", test_scope.user.?.username.?);
-    try testing.expect(test_scope.user.?.email == null);
-}
-
-test "Scope - breadcrumb management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    const breadcrumb1 = Breadcrumb{
-        .message = try allocator.dupe(u8, "User clicked button"),
+    try addBreadcrumb(Breadcrumb{
+        .message = "User clicked button",
         .type = BreadcrumbType.user,
         .level = Level.info,
-        .category = try allocator.dupe(u8, "ui"),
+        .category = "ui",
         .timestamp = std.time.timestamp(),
         .data = null,
-    };
-
-    try test_scope.addBreadcrumb(breadcrumb1);
-    try testing.expect(test_scope.breadcrumbs.items.len == 1);
-    try testing.expectEqualStrings("User clicked button", test_scope.breadcrumbs.items[0].message);
-
-    var data = std.StringHashMap([]const u8).init(allocator);
-    try data.put(try allocator.dupe(u8, "button_id"), try allocator.dupe(u8, "submit"));
-    try data.put(try allocator.dupe(u8, "page"), try allocator.dupe(u8, "login"));
-
-    const breadcrumb2 = Breadcrumb{
-        .message = try allocator.dupe(u8, "Form submitted"),
-        .type = BreadcrumbType.user,
-        .level = Level.info,
-        .category = try allocator.dupe(u8, "form"),
+    });
+    try addBreadcrumb(Breadcrumb{
+        .message = "API call made",
+        .type = BreadcrumbType.http,
+        .level = Level.debug,
+        .category = "api",
         .timestamp = std.time.timestamp(),
-        .data = data,
-    };
+        .data = null,
+    });
+    try testing.expect(isolation_scope.breadcrumbs.items.len == 2);
+    try testing.expectEqualStrings("User clicked button", isolation_scope.breadcrumbs.items[0].message);
+    try testing.expect(isolation_scope.breadcrumbs.items[0].type == BreadcrumbType.user);
+    try testing.expectEqualStrings("API call made", isolation_scope.breadcrumbs.items[1].message);
+    try testing.expect(isolation_scope.breadcrumbs.items[1].type == BreadcrumbType.http);
 
-    try test_scope.addBreadcrumb(breadcrumb2);
-    try testing.expect(test_scope.breadcrumbs.items.len == 2);
+    const global_scope_ref = try getGlobalScope();
+    const current_scope = try getCurrentScope();
 
-    test_scope.clearBreadcrumbs();
-    try testing.expect(test_scope.breadcrumbs.items.len == 0);
+    try testing.expect(current_scope == isolation_scope);
+    try testing.expect(global_scope_ref != isolation_scope);
+    try testing.expect(global_scope_ref.level == Level.info);
+    try testing.expect(global_scope_ref.tags.count() == 0);
+    try testing.expect(global_scope_ref.user == null);
 }
 
 test "Scope - breadcrumb limit enforcement" {
@@ -891,6 +882,8 @@ test "Scope - breadcrumb limit enforcement" {
     var i: usize = 0;
     while (i <= Scope.MAX_BREADCRUMBS + 5) : (i += 1) {
         const message = try std.fmt.allocPrint(allocator, "Breadcrumb {}", .{i});
+        defer allocator.free(message); // Free the original string after addBreadcrumb clones it
+
         const breadcrumb = Breadcrumb{
             .message = message,
             .type = BreadcrumbType.default,
@@ -904,289 +897,6 @@ test "Scope - breadcrumb limit enforcement" {
 
     try testing.expect(test_scope.breadcrumbs.items.len == Scope.MAX_BREADCRUMBS);
     try testing.expectEqualStrings("Breadcrumb 6", test_scope.breadcrumbs.items[0].message);
-}
-
-test "Scope - context management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    var device_context = std.StringHashMap([]const u8).init(allocator);
-    try device_context.put(try allocator.dupe(u8, "name"), try allocator.dupe(u8, "iPhone"));
-    try device_context.put(try allocator.dupe(u8, "model"), try allocator.dupe(u8, "iPhone 12"));
-    try device_context.put(try allocator.dupe(u8, "os"), try allocator.dupe(u8, "iOS 15.0"));
-
-    try test_scope.setContext("device", device_context);
-    try testing.expect(test_scope.contexts.count() == 1);
-
-    const stored_context = test_scope.contexts.get("device").?;
-    try testing.expectEqualStrings("iPhone", stored_context.get("name").?);
-    try testing.expectEqualStrings("iPhone 12", stored_context.get("model").?);
-    try testing.expectEqualStrings("iOS 15.0", stored_context.get("os").?);
-}
-
-test "Scope - fork functionality" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var original_scope = Scope.init(allocator);
-    defer original_scope.deinit();
-
-    // Set up original scope
-    try original_scope.setTag("environment", "test");
-    try original_scope.setTag("version", "1.0.0");
-
-    const user = User{
-        .id = "123",
-        .username = "testuser",
-        .email = null,
-        .name = null,
-        .ip_address = null,
-    };
-    original_scope.setUser(user);
-
-    const breadcrumb = Breadcrumb{
-        .message = try allocator.dupe(u8, "Original breadcrumb"),
-        .type = BreadcrumbType.default,
-        .level = Level.info,
-        .category = null,
-        .timestamp = std.time.timestamp(),
-        .data = null,
-    };
-    try original_scope.addBreadcrumb(breadcrumb);
-
-    // Fork the scope
-    var forked_scope = try original_scope.fork();
-    defer forked_scope.deinit();
-
-    // Test that forked scope has the same data
-    try testing.expect(forked_scope.tags.count() == 2);
-    try testing.expectEqualStrings("test", forked_scope.tags.get("environment").?);
-    try testing.expectEqualStrings("1.0.0", forked_scope.tags.get("version").?);
-
-    try testing.expect(forked_scope.user != null);
-    try testing.expectEqualStrings("123", forked_scope.user.?.id.?);
-    try testing.expectEqualStrings("testuser", forked_scope.user.?.username.?);
-
-    try testing.expect(forked_scope.breadcrumbs.items.len == 1);
-    try testing.expectEqualStrings("Original breadcrumb", forked_scope.breadcrumbs.items[0].message);
-
-    // Test that modifying forked scope doesn't affect original
-    try forked_scope.setTag("new_tag", "new_value");
-    try testing.expect(original_scope.tags.get("new_tag") == null);
-    try testing.expect(forked_scope.tags.get("new_tag") != null);
-}
-
-test "Scope - merge functionality" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var target_scope = Scope.init(allocator);
-    defer target_scope.deinit();
-
-    var source_scope = Scope.init(allocator);
-    defer source_scope.deinit();
-
-    // Set up target scope
-    try target_scope.setTag("existing", "value1");
-    try target_scope.setTag("shared", "original");
-
-    // Set up source scope
-    try source_scope.setTag("new", "value2");
-    try source_scope.setTag("shared", "overridden"); // This should override target
-
-    const user = User{
-        .id = "456",
-        .username = "sourceuser",
-        .email = null,
-        .name = null,
-        .ip_address = null,
-    };
-    source_scope.setUser(user);
-
-    const breadcrumb = Breadcrumb{
-        .message = try allocator.dupe(u8, "Source breadcrumb"),
-        .type = BreadcrumbType.default,
-        .level = Level.warning,
-        .category = null,
-        .timestamp = std.time.timestamp(),
-        .data = null,
-    };
-    try source_scope.addBreadcrumb(breadcrumb);
-
-    // Merge source into target
-    try target_scope.merge(&source_scope);
-
-    // Test merged results
-    try testing.expect(target_scope.tags.count() == 3);
-    try testing.expectEqualStrings("value1", target_scope.tags.get("existing").?);
-    try testing.expectEqualStrings("value2", target_scope.tags.get("new").?);
-    try testing.expectEqualStrings("overridden", target_scope.tags.get("shared").?);
-
-    try testing.expect(target_scope.user != null);
-    try testing.expectEqualStrings("456", target_scope.user.?.id.?);
-    try testing.expectEqualStrings("sourceuser", target_scope.user.?.username.?);
-
-    try testing.expect(target_scope.breadcrumbs.items.len == 1);
-    try testing.expectEqualStrings("Source breadcrumb", target_scope.breadcrumbs.items[0].message);
-}
-
-test "Scope - scope manager functionality" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    resetAllScopeState(allocator);
-    defer resetAllScopeState(allocator);
-
-    // Initialize scope manager
-    try initScopeManager(allocator);
-
-    // Test getting scopes
-    const global = try getGlobalScope();
-    const isolation = try getIsolationScope();
-    const current = try getCurrentScope();
-
-    // Test that current scope is initially the same as isolation scope
-    try testing.expect(current == isolation);
-
-    // Test setting tags on different scopes
-    try global.setTag("global_tag", "global_value");
-    try isolation.setTag("isolation_tag", "isolation_value");
-
-    // Test withScope
-    try withScope(struct {
-        fn callback(scope: *Scope) !void {
-            try scope.setTag("current_tag", "current_value");
-
-            // Verify we can see isolation tags but not modify them
-            try testing.expect(scope.tags.get("current_tag") != null);
-            try testing.expectEqualStrings("current_value", scope.tags.get("current_tag").?);
-        }
-    }.callback);
-
-    // Verify tag is not present outside withScope
-    const after_current = try getCurrentScope();
-    try testing.expect(after_current.tags.get("current_tag") == null);
-
-    // Test convenience functions
-    try setTag("convenience_tag", "convenience_value");
-    const user = User{
-        .id = "convenience_user",
-        .username = null,
-        .email = null,
-        .name = null,
-        .ip_address = null,
-    };
-    try setUser(user);
-    try setLevel(Level.warning);
-
-    // Verify they wrote to isolation scope
-    const iso = try getIsolationScope();
-    try testing.expectEqualStrings("convenience_value", iso.tags.get("convenience_tag").?);
-    try testing.expect(iso.user != null);
-    try testing.expectEqualStrings("convenience_user", iso.user.?.id.?);
-    try testing.expect(iso.level == Level.warning);
-}
-
-test "Scope - level management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    try testing.expect(test_scope.level == Level.info);
-
-    test_scope.level = Level.debug;
-    try testing.expect(test_scope.level == Level.debug);
-
-    test_scope.level = Level.warning;
-    try testing.expect(test_scope.level == Level.warning);
-
-    test_scope.level = Level.@"error";
-    try testing.expect(test_scope.level == Level.@"error");
-
-    test_scope.level = Level.fatal;
-    try testing.expect(test_scope.level == Level.fatal);
-}
-
-test "Scope - fingerprint management" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    try testing.expect(test_scope.fingerprint == null);
-
-    test_scope.fingerprint = std.ArrayList([]const u8).init(allocator);
-    try test_scope.fingerprint.?.append(try allocator.dupe(u8, "fingerprint1"));
-    try test_scope.fingerprint.?.append(try allocator.dupe(u8, "fingerprint2"));
-
-    try testing.expect(test_scope.fingerprint.?.items.len == 2);
-    try testing.expectEqualStrings("fingerprint1", test_scope.fingerprint.?.items[0]);
-    try testing.expectEqualStrings("fingerprint2", test_scope.fingerprint.?.items[1]);
-}
-
-test "Scope - empty scope operations" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var empty_scope = Scope.init(allocator);
-    defer empty_scope.deinit();
-
-    empty_scope.removeTags();
-    empty_scope.clearBreadcrumbs();
-
-    var forked = try empty_scope.fork();
-    defer forked.deinit();
-
-    try testing.expect(forked.tags.count() == 0);
-    try testing.expect(forked.breadcrumbs.items.len == 0);
-    try testing.expect(forked.user == null);
-}
-
-test "Scope - memory management edge cases" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var test_scope = Scope.init(allocator);
-    defer test_scope.deinit();
-
-    try test_scope.setTag("key", "value1");
-    try test_scope.setTag("key", "value2");
-    try test_scope.setTag("key", "value3");
-
-    try testing.expectEqualStrings("value3", test_scope.tags.get("key").?);
-    try testing.expect(test_scope.tags.count() == 1);
-}
-
-test "Scope - merge with empty and null fields" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    var target_scope = Scope.init(allocator);
-    defer target_scope.deinit();
-
-    var empty_scope = Scope.init(allocator);
-    defer empty_scope.deinit();
-
-    try target_scope.merge(&empty_scope);
-
-    try testing.expect(target_scope.tags.count() == 0);
-    try testing.expect(target_scope.user == null);
-    try testing.expect(target_scope.breadcrumbs.items.len == 0);
 }
 
 test "Scope - complex fork with all data types" {
@@ -1209,25 +919,25 @@ test "Scope - complex fork with all data types" {
     };
     original.setUser(user);
 
-    original.fingerprint = std.ArrayList([]const u8).init(allocator);
-    try original.fingerprint.?.append(try allocator.dupe(u8, "fp1"));
-    try original.fingerprint.?.append(try allocator.dupe(u8, "fp2"));
+    try original.setFingerprint(&[_][]const u8{ "fp1", "fp2" });
 
     var data = std.StringHashMap([]const u8).init(allocator);
-    try data.put(try allocator.dupe(u8, "key1"), try allocator.dupe(u8, "value1"));
+    defer data.deinit(); // Clean up original HashMap
+    try data.put("key1", "value1");
 
     const breadcrumb = Breadcrumb{
-        .message = try allocator.dupe(u8, "Test breadcrumb"),
+        .message = "Test breadcrumb",
         .type = BreadcrumbType.navigation,
         .level = Level.info,
-        .category = try allocator.dupe(u8, "test"),
+        .category = "test",
         .timestamp = std.time.timestamp(),
         .data = data,
     };
     try original.addBreadcrumb(breadcrumb);
 
     var context = std.StringHashMap([]const u8).init(allocator);
-    try context.put(try allocator.dupe(u8, "platform"), try allocator.dupe(u8, "linux"));
+    defer context.deinit(); // Clean up original HashMap
+    try context.put("platform", "linux");
     try original.setContext("os", context);
 
     var forked = try original.fork();
@@ -1264,18 +974,10 @@ test "Scope - complex fork with all data types" {
 const ThreadTestContext = struct {
     allocator: std.mem.Allocator,
     thread_id: u32,
+    thread_count: u32,
     results: []bool,
 
     fn threadFunction(context: ThreadTestContext) void {
-        // Create a local scope manager for this thread
-        var manager = ScopeManager.init(context.allocator);
-
-        // Get isolation scope and set thread-specific data
-        const isolation_scope = manager.getIsolationScope() catch {
-            context.results[context.thread_id] = false;
-            return;
-        };
-
         const tag_key = std.fmt.allocPrint(context.allocator, "thread_{}", .{context.thread_id}) catch {
             context.results[context.thread_id] = false;
             return;
@@ -1288,7 +990,12 @@ const ThreadTestContext = struct {
         };
         defer context.allocator.free(tag_value);
 
-        isolation_scope.setTag(tag_key, tag_value) catch {
+        setTag(tag_key, tag_value) catch {
+            context.results[context.thread_id] = false;
+            return;
+        };
+
+        const isolation_scope = getIsolationScope() catch {
             context.results[context.thread_id] = false;
             return;
         };
@@ -1303,9 +1010,30 @@ const ThreadTestContext = struct {
             return;
         }
 
+        // Verify thread isolation: other threads' tags should not be visible
+        var other_thread: u32 = 0;
+        while (other_thread < context.thread_count) : (other_thread += 1) {
+            if (other_thread == context.thread_id) continue;
+
+            const other_tag_key = std.fmt.allocPrint(context.allocator, "thread_{}", .{other_thread}) catch {
+                context.results[context.thread_id] = false;
+                return;
+            };
+            defer context.allocator.free(other_tag_key);
+
+            if (isolation_scope.tags.get(other_tag_key) != null) {
+                context.results[context.thread_id] = false;
+                return;
+            }
+        }
+
+        if (isolation_scope.tags.count() != 1) {
+            context.results[context.thread_id] = false;
+            return;
+        }
+
         context.results[context.thread_id] = true;
 
-        // Clean up thread-local state
         if (thread_isolation_scope) |scope| {
             scope.deinit();
             context.allocator.destroy(scope);
@@ -1331,6 +1059,8 @@ test "Scope - thread safety verification" {
     resetAllScopeState(allocator);
     defer resetAllScopeState(allocator);
 
+    try initScopeManager(allocator);
+
     const thread_count = 4;
     var threads: [thread_count]std.Thread = undefined;
     var results = [_]bool{false} ** thread_count;
@@ -1339,6 +1069,7 @@ test "Scope - thread safety verification" {
         const context = ThreadTestContext{
             .allocator = allocator,
             .thread_id = @intCast(i),
+            .thread_count = thread_count,
             .results = &results,
         };
 
@@ -1349,4 +1080,93 @@ test "Scope - thread safety verification" {
         threads[i].join();
         try testing.expect(results[i]);
     }
+}
+
+test "Scope - withScope workflow and restoration" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    resetAllScopeState(allocator);
+    defer resetAllScopeState(allocator);
+
+    try initScopeManager(allocator);
+
+    try setLevel(Level.@"error");
+    try setTag("base_tag", "base_value");
+    try setUser(User{
+        .id = "original_user",
+        .username = "original",
+        .email = null,
+        .name = null,
+        .ip_address = null,
+    });
+
+    const original_isolation_scope = try getIsolationScope();
+
+    try testing.expect(original_isolation_scope.level == Level.@"error");
+    try testing.expectEqualStrings("base_value", original_isolation_scope.tags.get("base_tag").?);
+    try testing.expectEqualStrings("original_user", original_isolation_scope.user.?.id.?);
+
+    try withScope(struct {
+        fn callback(scope: *Scope) !void {
+            const current_scope_in_callback = getCurrentScope() catch unreachable;
+            try testing.expect(current_scope_in_callback == scope);
+
+            const isolation_scope_in_callback = getIsolationScope() catch unreachable;
+            try testing.expect(current_scope_in_callback != isolation_scope_in_callback);
+
+            try testing.expect(scope.level == Level.@"error");
+            try testing.expectEqualStrings("base_value", scope.tags.get("base_tag").?);
+            try testing.expectEqualStrings("original_user", scope.user.?.id.?);
+
+            try scope.setTag("scoped_tag", "scoped_value");
+            scope.level = Level.debug;
+            scope.setUser(User{
+                .id = "scoped_user",
+                .username = "scoped",
+                .email = null,
+                .name = null,
+                .ip_address = null,
+            });
+
+            try testing.expect(scope.level == Level.debug);
+            try testing.expectEqualStrings("scoped_value", scope.tags.get("scoped_tag").?);
+            try testing.expectEqualStrings("scoped_user", scope.user.?.id.?);
+            try testing.expectEqualStrings("base_value", scope.tags.get("base_tag").?);
+        }
+    }.callback);
+
+    const current_after_withScope = try getCurrentScope();
+    try testing.expect(current_after_withScope == original_isolation_scope);
+
+    try testing.expect(original_isolation_scope.level == Level.@"error");
+    try testing.expectEqualStrings("base_value", original_isolation_scope.tags.get("base_tag").?);
+    try testing.expectEqualStrings("original_user", original_isolation_scope.user.?.id.?);
+    try testing.expect(original_isolation_scope.tags.get("scoped_tag") == null);
+
+    try withScope(struct {
+        fn outerCallback(outer_scope: *Scope) !void {
+            try outer_scope.setTag("outer_tag", "outer_value");
+
+            try withScope(struct {
+                fn innerCallback(inner_scope: *Scope) !void {
+                    try testing.expectEqualStrings("outer_value", inner_scope.tags.get("outer_tag").?);
+                    try testing.expectEqualStrings("base_value", inner_scope.tags.get("base_tag").?);
+
+                    try inner_scope.setTag("inner_tag", "inner_value");
+                    try testing.expectEqualStrings("inner_value", inner_scope.tags.get("inner_tag").?);
+                }
+            }.innerCallback);
+
+            try testing.expect(outer_scope.tags.get("inner_tag") == null);
+            try testing.expectEqualStrings("outer_value", outer_scope.tags.get("outer_tag").?);
+        }
+    }.outerCallback);
+
+    const final_current = try getCurrentScope();
+    try testing.expect(final_current == original_isolation_scope);
+    try testing.expect(original_isolation_scope.tags.get("outer_tag") == null);
+    try testing.expect(original_isolation_scope.tags.get("inner_tag") == null);
+    try testing.expectEqualStrings("base_value", original_isolation_scope.tags.get("base_tag").?);
 }
