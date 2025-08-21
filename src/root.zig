@@ -18,11 +18,15 @@ pub const Transaction = types.Transaction;
 pub const TransactionContext = types.TransactionContext;
 pub const TransactionStatus = types.TransactionStatus;
 pub const Span = types.Span;
+pub const StackTrace = types.StackTrace;
+pub const Frame = types.Frame;
 
 pub const SentryClient = @import("client.zig").SentryClient;
 
 pub const ScopeType = scopes.ScopeType;
 pub const addBreadcrumb = scopes.addBreadcrumb;
+
+pub const panicHandler = @import("panic_handler.zig").panicHandler;
 
 pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !*SentryClient {
     try scopes.initScopeManager(allocator);
@@ -57,6 +61,12 @@ pub const getActiveTransaction = tracing.getActiveTransaction;
 
 pub const getActiveSpan = tracing.getActiveSpan;
 
-test "compile check everything" {
+pub fn captureMessage(message: []const u8, level: Level) !?EventId {
+    const event = Event.fromMessage(message, level);
+    return captureEvent(event);
+}
+
+test "compile and test everything" {
+    _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());
 }

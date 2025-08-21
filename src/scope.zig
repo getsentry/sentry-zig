@@ -595,6 +595,13 @@ pub fn initScopeManager(allocator: Allocator) !void {
     g_scope_manager = ScopeManager.init(allocator);
 }
 
+pub fn getAllocator() !Allocator {
+    if (g_scope_manager) |*manager| {
+        return manager.allocator;
+    }
+    return error.ScopeManagerNotInitialized;
+}
+
 /// Get the global scope
 pub fn getGlobalScope() !*Scope {
     if (g_scope_manager) |*manager| {

@@ -16,9 +16,11 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Examples:"
-	@echo "  make test     - Run all tests"
-	@echo "  make build    - Build the library"
-	@echo "  make clean    - Clean build artifacts"
+	@echo "  make test                - Run all tests"
+	@echo "  make build               - Build the library"
+	@echo "  make clean               - Clean build artifacts"
+	@echo "  make run-panic-handler   - Run the panic handler example"
+	@echo "  make run-capture-message - Run the capture message example"
 
 test: ## Run all tests with detailed output
 	@echo "Running tests..."
@@ -36,11 +38,11 @@ clean: ## Clean build artifacts and cache
 format: ## Format all Zig source files
 	@echo "Formatting source files..."
 	@zig fmt src/
-	@if [ -d "examples/" ]; then zig fmt examples/; fi
+	@zig fmt examples/
 
 check: ## Check code formatting and run linter
 	@echo "Checking code formatting..."
-	@if zig fmt --check src/ && ([ ! -d "examples/" ] || zig fmt --check examples/); then \
+	@if zig fmt --check src/ && zig fmt --check examples/; then \
 		echo "All files are properly formatted"; \
 	else \
 		echo "Some files need formatting. Run 'make format' to fix."; \
@@ -49,5 +51,17 @@ check: ## Check code formatting and run linter
 
 install: ## Install the library (build and copy to zig-out)
 	@zig build install $(ZIG_BUILD_OPTS)
+
+# Example targets
+.PHONY: examples run-panic-handler run-capture-message
+examples: ## Build all examples (install only, don't run)
+	@echo "Building all examples..."
+	@zig build install $(ZIG_BUILD_OPTS)
+
+run-panic-handler: ## Run the panic handler example
+	@zig build panic_handler $(ZIG_BUILD_OPTS)
+
+run-capture-message: ## Run the capture message example
+	@zig build capture_message $(ZIG_BUILD_OPTS)
 
 all: clean format check build test ## Run complete build pipeline
