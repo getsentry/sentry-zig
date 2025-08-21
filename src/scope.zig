@@ -399,6 +399,11 @@ pub const Scope = struct {
     }
 
     fn applyTracingToEvent(self: *const Scope, event: *Event) void {
+        // Don't apply trace context to transactions - they manage their own
+        if (event.type != null and std.mem.eql(u8, event.type.?, "transaction")) {
+            return;
+        }
+
         // Priority: active span > propagation_context
         if (self.span) |active_span| {
             // Performance mode: inherit from active span
@@ -406,10 +411,12 @@ pub const Scope = struct {
                 event.trace_id = active_span.trace_id;
             }
             if (event.span_id == null) {
-                event.span_id = active_span.span_id;
+                // Regular events should generate their own span_id
+                event.span_id = @import("types").SpanId.generate();
             }
             if (event.parent_span_id == null) {
-                event.parent_span_id = active_span.parent_span_id;
+                // The parent of this event is the active span
+                event.parent_span_id = active_span.span_id;
             }
         } else {
             // TwP mode: inherit from propagation_context

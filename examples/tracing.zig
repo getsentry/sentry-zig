@@ -34,8 +34,20 @@ pub fn main() !void {
 
     const transaction = try sentry.startTransaction(allocator, "http.request", "GET /api/users");
     if (transaction) |tx| {
+        var db_span: ?*sentry.Span = null;
+        var cache_span: ?*sentry.Span = null;
+
         defer {
             sentry.finishTransaction(tx);
+            // Clean up child spans after transaction is sent
+            if (db_span) |db| {
+                db.deinit();
+                allocator.destroy(db);
+            }
+            if (cache_span) |cache| {
+                cache.deinit();
+                allocator.destroy(cache);
+            }
             tx.deinit();
             allocator.destroy(tx);
         }
@@ -49,14 +61,8 @@ pub fn main() !void {
 
         std.log.info("Transaction created with trace_id: {s}", .{&tx.trace_id.toHexFixed()});
 
-        const db_span = try sentry.startSpan(allocator, "db.query", "SELECT * FROM users");
+        db_span = try sentry.startSpan(allocator, "db.query", "SELECT * FROM users");
         if (db_span) |db| {
-            defer {
-                db.finish();
-                db.deinit();
-                allocator.destroy(db);
-            }
-
             try db.setTag("db.operation", "SELECT");
             try db.setTag("table", "users");
             try db.setData("query", "SELECT id, name, email FROM users WHERE active = true");
@@ -64,14 +70,8 @@ pub fn main() !void {
 
             std.log.info("Database span created: {s}", .{&db.span_id.toHexFixed()});
 
-            const cache_span = try sentry.startSpan(allocator, "cache.set", "Cache user results");
+            cache_span = try sentry.startSpan(allocator, "cache.set", "Cache user results");
             if (cache_span) |cache| {
-                defer {
-                    cache.finish();
-                    cache.deinit();
-                    allocator.destroy(cache);
-                }
-
                 try cache.setTag("cache.key", "users:active");
                 try cache.setData("ttl", "300");
 
@@ -79,7 +79,10 @@ pub fn main() !void {
 
                 // Simulate cache work
                 std.time.sleep(10 * std.time.ns_per_ms);
+                cache.finish();
             }
+
+            db.finish();
         }
         _ = try sentry.captureMessage("User list retrieved successfully", .info);
     }

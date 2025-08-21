@@ -9,6 +9,7 @@ const TransportResult = types.TransportResult;
 const SentryEnvelopeItem = types.SentryEnvelopeItem;
 const SentryEnvelopeHeader = types.SentryEnvelopeHeader;
 const SentryEnvelopeItemHeader = types.SentryEnvelopeItemHeader;
+const SentryItemType = types.SentryItemType;
 const EventId = types.EventId;
 const Event = types.Event;
 const User = types.User;
@@ -144,10 +145,21 @@ pub const HttpTransport = struct {
         try std.json.stringify(event, .{}, list.writer());
 
         const data = try list.toOwnedSlice();
+
+        // Use the correct item type based on the event type
+        const item_type: SentryItemType = if (event.type != null and std.mem.eql(u8, event.type.?, "transaction"))
+            .transaction
+        else
+            .event;
+
+        if (self.options.debug) {
+            std.log.debug("Creating envelope item with type: {s}", .{item_type.toString()});
+        }
+
         return SentryEnvelopeItem{
             .header = .{
-                .type = .event,
-                .length = @intCast(data.len), // Use actual data length, not buffer length
+                .type = item_type,
+                .length = @intCast(data.len),
             },
             .data = data,
         };

@@ -2,6 +2,7 @@ const std = @import("std");
 const TraceId = @import("TraceId.zig").TraceId;
 const SpanId = @import("SpanId.zig").SpanId;
 const Allocator = std.mem.Allocator;
+const hashmap_utils = @import("../utils/hashmap_utils.zig");
 
 pub const Sampled = enum(i8) {
     False = -1,
@@ -306,7 +307,11 @@ pub const Span = struct {
         if (span_id_str.len != 16) return false;
 
         self.trace_id = TraceId.fromHex(trace_id_str) catch return false;
-        self.parent_span_id = SpanId.fromHex(span_id_str) catch return false;
+
+        // Only set parent_span_id for child spans, not transactions
+        if (!self.isTransaction()) {
+            self.parent_span_id = SpanId.fromHex(span_id_str) catch return false;
+        }
 
         if (parts.next()) |sampled_str| {
             if (std.mem.eql(u8, sampled_str, "1")) {
@@ -332,16 +337,91 @@ pub const Span = struct {
         const Event = @import("Event.zig").Event;
         const EventId = @import("Event.zig").EventId;
 
-        return Event{
+        var event = Event{
+            .allocator = self.allocator,
             .event_id = EventId.new(),
             .timestamp = self.end_time orelse self.start_time,
             .type = "transaction",
-            .transaction = self.name orelse self.op,
+            .transaction = self.allocator.dupe(u8, self.name orelse self.op) catch |err| {
+                std.log.warn("Failed to duplicate transaction name: {}", .{err});
+                return Event{
+                    .allocator = self.allocator,
+                    .event_id = EventId.new(),
+                    .timestamp = self.end_time orelse self.start_time,
+                };
+            },
             .trace_id = self.trace_id,
             .span_id = self.span_id,
-            .parent_span_id = self.parent_span_id,
-            .tags = self.tags,
+            .parent_span_id = null,
+            .tags = if (self.tags) |tags| hashmap_utils.cloneStringHashMap(self.allocator, tags) catch null else null,
+            .start_time = self.start_time,
+            .contexts = null,
         };
+
+        // Add trace context for transactions
+        if (self.isTransaction()) {
+            var contexts = std.StringHashMap(std.StringHashMap([]const u8)).init(self.allocator);
+            var trace_context = std.StringHashMap([]const u8).init(self.allocator);
+
+            // Add required trace context fields
+            const trace_id_hex = self.trace_id.toHexFixed();
+            const span_id_hex = self.span_id.toHexFixed();
+
+            trace_context.put(self.allocator.dupe(u8, "trace_id") catch return event, self.allocator.dupe(u8, &trace_id_hex) catch return event) catch {};
+            trace_context.put(self.allocator.dupe(u8, "span_id") catch return event, self.allocator.dupe(u8, &span_id_hex) catch return event) catch {};
+            trace_context.put(self.allocator.dupe(u8, "op") catch return event, self.allocator.dupe(u8, self.op) catch return event) catch {};
+            if (self.status != .undefined) {
+                trace_context.put(self.allocator.dupe(u8, "status") catch return event, self.allocator.dupe(u8, self.status.toString()) catch return event) catch {};
+            }
+
+            contexts.put(self.allocator.dupe(u8, "trace") catch return event, trace_context) catch {};
+            event.contexts = contexts;
+        }
+
+        if (self.isTransaction() and self.recorder != null) {
+            const recorded_spans = self.recorder.?.spans.items;
+            if (recorded_spans.len > 1) {
+                var child_spans = self.allocator.alloc(Span, recorded_spans.len - 1) catch {
+                    std.log.warn("Failed to allocate spans array for transaction", .{});
+                    return event;
+                };
+
+                var child_count: usize = 0;
+                for (recorded_spans) |span| {
+                    if (!span.isTransaction()) {
+                        child_spans[child_count] = Span{
+                            .trace_id = span.trace_id,
+                            .span_id = span.span_id,
+                            .parent_span_id = span.parent_span_id,
+                            .op = self.allocator.dupe(u8, span.op) catch {
+                                std.log.warn("Failed to duplicate span op", .{});
+                                continue;
+                            },
+                            .description = if (span.description) |desc| self.allocator.dupe(u8, desc) catch null else null,
+                            .status = span.status,
+                            .start_time = span.start_time,
+                            .end_time = span.end_time,
+                            .finished = span.finished,
+                            .sampled = span.sampled,
+                            .allocator = self.allocator,
+                            // Deep copy HashMaps if they exist
+                            .tags = if (span.tags) |tags| hashmap_utils.cloneStringHashMap(self.allocator, tags) catch null else null,
+                            .data = if (span.data) |data| hashmap_utils.cloneStringHashMap(self.allocator, data) catch null else null,
+                            .contexts = null,
+                            // These fields are not copied
+                            .name = null,
+                            .parent = null,
+                            .recorder = null,
+                        };
+                        child_count += 1;
+                    }
+                }
+
+                event.spans = child_spans[0..child_count];
+            }
+        }
+
+        return event;
     }
 
     /// JSON serialization for sending to Sentry (manual due to StringHashMap)

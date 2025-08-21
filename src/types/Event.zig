@@ -695,6 +695,8 @@ pub const Event = struct {
     trace_id: ?TraceId = null,
     span_id: ?SpanId = null,
     parent_span_id: ?SpanId = null,
+    start_time: ?f64 = null,
+    spans: ?[]const @import("Span.zig").Span = null,
 
     // Core interfaces
     exception: ?Exception = null,
@@ -842,6 +844,14 @@ pub const Event = struct {
             try jw.objectField("parent_span_id");
             try jw.write(parent_span_id);
         }
+        if (self.start_time) |start_time| {
+            try jw.objectField("start_timestamp");
+            try jw.write(start_time);
+        }
+        if (self.spans) |spans| {
+            try jw.objectField("spans");
+            try jw.write(spans);
+        }
 
         try jw.endObject();
     }
@@ -977,6 +987,19 @@ pub const Event = struct {
         if (self.allocator) |allocator| if (self.request) |*request| request.deinit(allocator);
         if (self.allocator) |allocator| if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
         if (self.allocator) |allocator| if (self.threads) |*threads| threads.deinit(allocator);
+
+        // Free spans array and all span data (Event owns all span data)
+        if (self.spans) |spans| {
+            if (self.allocator) |allocator| {
+                // Clean up each span's owned data
+                for (spans) |span| {
+                    // Cast to mutable for cleanup since Event owns the data
+                    var mutable_span = span;
+                    mutable_span.deinit();
+                }
+                allocator.free(spans);
+            }
+        }
 
         // Free other interfaces
         if (self.allocator) |allocator| if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);

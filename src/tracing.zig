@@ -221,7 +221,10 @@ fn sendTransactionToSentry(transaction: *Span) !void {
         &transaction.trace_id.toHexFixed(),
     });
 
-    const event = transaction.toEvent();
+    // Create event and properly clean it up after sending
+    var event = transaction.toEvent();
+    defer event.deinit();
+
     const event_id = try scope.captureEvent(event);
 
     if (event_id) |id| {
@@ -426,7 +429,7 @@ test "continueFromHeaders trace propagation" {
     }
 
     try std.testing.expectEqualStrings("bc6d53f15eb88f4320054569b8c553d4", &transaction.?.trace_id.toHexFixed());
-    try std.testing.expectEqualStrings("b72fa28504b07285", &transaction.?.parent_span_id.?.toHexFixed());
+    try std.testing.expect(transaction.?.parent_span_id == null); // Transactions should not have parent_span_id
     try std.testing.expect(transaction.?.sampled == .True);
 
     const sentry_trace_unsampled = "bc6d53f15eb88f4320054569b8c553d4-b72fa28504b07285-0";
@@ -666,20 +669,35 @@ test "Span finish behavior and timing" {
 test "Span updateFromSentryTrace parsing" {
     const allocator = std.testing.allocator;
 
-    const span = try Span.init(allocator, "test_op", null);
+    // Test with transaction (no parent)
+    const transaction = try Span.init(allocator, "test_op", null);
     defer {
-        span.deinit();
-        allocator.destroy(span);
+        transaction.deinit();
+        allocator.destroy(transaction);
     }
 
-    const success = span.updateFromSentryTrace("bc6d53f15eb88f4320054569b8c553d4-b72fa28504b07285-1");
+    const success = transaction.updateFromSentryTrace("bc6d53f15eb88f4320054569b8c553d4-b72fa28504b07285-1");
     try std.testing.expect(success);
 
-    try std.testing.expectEqualStrings("bc6d53f15eb88f4320054569b8c553d4", &span.trace_id.toHexFixed());
-    try std.testing.expectEqualStrings("b72fa28504b07285", &span.parent_span_id.?.toHexFixed());
-    try std.testing.expect(span.sampled == .True);
+    try std.testing.expectEqualStrings("bc6d53f15eb88f4320054569b8c553d4", &transaction.trace_id.toHexFixed());
+    try std.testing.expect(transaction.parent_span_id == null); // Transactions should not have parent_span_id
+    try std.testing.expect(transaction.sampled == .True);
 
-    const failure = span.updateFromSentryTrace("invalid-header");
+    // Test with child span (has parent)
+    const child_span = try Span.init(allocator, "child_op", transaction);
+    defer {
+        child_span.deinit();
+        allocator.destroy(child_span);
+    }
+
+    const child_success = child_span.updateFromSentryTrace("bc6d53f15eb88f4320054569b8c553d4-b72fa28504b07285-1");
+    try std.testing.expect(child_success);
+
+    try std.testing.expectEqualStrings("bc6d53f15eb88f4320054569b8c553d4", &child_span.trace_id.toHexFixed());
+    try std.testing.expectEqualStrings("b72fa28504b07285", &child_span.parent_span_id.?.toHexFixed());
+    try std.testing.expect(child_span.sampled == .True);
+
+    const failure = transaction.updateFromSentryTrace("invalid-header");
     try std.testing.expect(!failure);
 }
 
@@ -826,7 +844,12 @@ test "Event trace context inheritance" {
 
         try std.testing.expect(event.trace_id != null);
         try std.testing.expect(std.mem.eql(u8, &event.trace_id.?.bytes, &transaction.?.trace_id.bytes));
-        try std.testing.expect(std.mem.eql(u8, &event.span_id.?.bytes, &transaction.?.span_id.bytes));
+        // Event should have its own span_id (different from transaction)
+        try std.testing.expect(event.span_id != null);
+        try std.testing.expect(!std.mem.eql(u8, &event.span_id.?.bytes, &transaction.?.span_id.bytes));
+        // Event's parent should be the transaction
+        try std.testing.expect(event.parent_span_id != null);
+        try std.testing.expect(std.mem.eql(u8, &event.parent_span_id.?.bytes, &transaction.?.span_id.bytes));
     }
 }
 
