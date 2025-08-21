@@ -17,7 +17,7 @@ const Breadcrumbs = types.Breadcrumbs;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
 const Message = types.Message;
-const Transaction = types.Transaction;
+
 const Span = types.Span;
 const test_utils = @import("utils/test_utils.zig");
 
@@ -153,7 +153,7 @@ pub const HttpTransport = struct {
         };
     }
 
-    pub fn envelopeFromTransaction(self: *HttpTransport, transaction: *const Transaction) !SentryEnvelopeItem {
+    pub fn envelopeFromTransaction(self: *HttpTransport, transaction: *const Span) !SentryEnvelopeItem {
         var list = std.ArrayList(u8).init(self.allocator);
         errdefer list.deinit();
 

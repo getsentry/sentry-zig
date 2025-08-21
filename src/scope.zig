@@ -497,7 +497,7 @@ pub const Scope = struct {
             return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
         }
 
-        // TODO: Determine if span is Transaction or Span and call appropriate method
+        // TODO: Determine if span is root span or child span and call appropriate method
         // For now, generate from propagation context
         const trace_hex = self.propagation_context.trace_id.toHexFixed();
         const span_hex = self.propagation_context.span_id.toHexFixed();

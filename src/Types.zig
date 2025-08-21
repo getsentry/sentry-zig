@@ -26,7 +26,13 @@ pub const Contexts = @import("types/Contexts.zig").Contexts;
 pub const TraceId = @import("types/TraceId.zig").TraceId;
 pub const SpanId = @import("types/SpanId.zig").SpanId;
 pub const PropagationContext = @import("types/PropagationContext.zig").PropagationContext;
-pub const Transaction = @import("types/Transaction.zig").Transaction;
-pub const TransactionContext = @import("types/Transaction.zig").TransactionContext;
-pub const TransactionStatus = @import("types/Transaction.zig").TransactionStatus;
-pub const Span = @import("types/Transaction.zig").Span;
+
+// Unified span types
+pub const Span = @import("types/Span.zig").Span;
+pub const Sampled = @import("types/Span.zig").Sampled;
+pub const SpanStatus = @import("types/Span.zig").SpanStatus;
+pub const SpanOrigin = @import("types/Span.zig").SpanOrigin;
+pub const TransactionSource = @import("types/Span.zig").TransactionSource;
+
+// Trace context for header parsing utility
+pub const TraceContext = @import("types/TraceContext.zig").TraceContext;
