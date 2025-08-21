@@ -6,6 +6,7 @@ pub const Breadcrumb = @import("types/Breadcrumb.zig").Breadcrumb;
 pub const Dsn = @import("types/Dsn.zig").Dsn;
 pub const TransportResult = @import("types/TransportResult.zig").TransportResult;
 pub const SentryOptions = @import("types/SentryOptions.zig").SentryOptions;
+pub const SamplingContext = @import("types/SentryOptions.zig").SamplingContext;
 pub const SentryEnvelope = @import("types/SentryEnvelope.zig").SentryEnvelope;
 pub const SentryEnvelopeItem = @import("types/SentryEnvelopeItem.zig").SentryEnvelopeItem;
 pub const SentryEnvelopeHeader = @import("types/SentryEnvelopeHeader.zig").SentryEnvelopeHeader;
