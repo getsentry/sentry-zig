@@ -21,6 +21,7 @@ help: ## Show this help message
 	@echo "  make clean               - Clean build artifacts"
 	@echo "  make run-panic-handler   - Run the panic handler example"
 	@echo "  make run-capture-message - Run the capture message example"
+	@echo "  make run-capture-error   - Run the capture error example"
 
 test: ## Run all tests with detailed output
 	@echo "Running tests..."
@@ -53,7 +54,7 @@ install: ## Install the library (build and copy to zig-out)
 	@zig build install $(ZIG_BUILD_OPTS)
 
 # Example targets
-.PHONY: examples run-panic-handler run-capture-message
+.PHONY: examples run-panic-handler run-capture-message run-capture-error
 examples: ## Build all examples (install only, don't run)
 	@echo "Building all examples..."
 	@zig build install $(ZIG_BUILD_OPTS)
@@ -63,5 +64,8 @@ run-panic-handler: ## Run the panic handler example
 
 run-capture-message: ## Run the capture message example
 	@zig build capture_message $(ZIG_BUILD_OPTS)
+
+run-capture-error: ## Run the capture error example
+	@zig build capture_error $(ZIG_BUILD_OPTS)
 
 all: clean format check build test ## Run complete build pipeline

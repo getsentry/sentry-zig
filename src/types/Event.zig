@@ -6,6 +6,7 @@ const Level = @import("Level.zig").Level;
 const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
 const json_utils = @import("../utils/json_utils.zig");
+const utils = @import("utils");
 
 const Allocator = std.mem.Allocator;
 
@@ -962,6 +963,37 @@ pub const Event = struct {
             .platform = "native",
             .level = level,
             .message = .{ .message = message },
+        };
+    }
+
+    /// Create an Event from an error with automatic stack trace capture
+    pub fn fromError(allocator: std.mem.Allocator, err: anyerror) Event {
+        // Try to collect error trace if available
+        const stacktrace = utils.stack_trace.collectErrorTrace(allocator, @errorReturnTrace()) catch null;
+
+        // Get error name
+        const error_name = @errorName(err);
+
+        // Create exception
+        const exception = Exception{
+            .type = error_name,
+            .value = error_name,
+            .module = null,
+            .thread_id = @as(u64, @intCast(std.Thread.getCurrentId())),
+            .stacktrace = stacktrace,
+            .mechanism = Mechanism{
+                .type = "error",
+                .handled = true,
+            },
+        };
+
+        return Event{
+            .event_id = EventId.new(),
+            .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+            .platform = "native",
+            .level = Level.@"error",
+            .exception = exception,
+            .logger = "error_handler",
         };
     }
 };
