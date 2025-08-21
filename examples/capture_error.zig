@@ -48,7 +48,7 @@ pub fn main() !void {
         std.debug.print("Caught error: {}\n", .{err});
 
         // Capture the error with automatic stack trace capture
-        const event_id = try sentry.captureError(allocator, err);
+        const event_id = try sentry.captureError(err);
 
         if (event_id) |id| {
             std.debug.print("Error sent to Sentry with ID: {s}\n", .{id.value});
@@ -57,7 +57,7 @@ pub fn main() !void {
 
     // Also demonstrate capturing a standalone error
     const some_error = error.UnexpectedCondition;
-    const event_id2 = try sentry.captureError(allocator, some_error);
+    const event_id2 = try sentry.captureError(some_error);
     if (event_id2) |id| {
         std.debug.print("Error sent to Sentry with ID: {s}\n", .{id.value});
     }
