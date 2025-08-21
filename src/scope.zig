@@ -524,7 +524,6 @@ const GlobalScopeWrapper = struct {
         // Clean up existing scope if any
         if (self.scope) |scope| {
             scope.deinit();
-            // If we have a scope, we must have an allocator (invariant)
             if (self.allocator) |allocator| {
                 allocator.destroy(scope);
             } else {
@@ -540,9 +539,6 @@ const GlobalScopeWrapper = struct {
     }
 };
 
-// Thread-safe global scope wrapper instance
-// The wrapper's internal mutex ensures thread-safe access to the global scope.
-// The wrapper itself is never reassigned, only its internal state is modified.
 var global_scope_wrapper = GlobalScopeWrapper.init();
 
 threadlocal var thread_isolation_scope: ?*Scope = null;
