@@ -58,7 +58,7 @@ pub const Scope = struct {
         self.tags.deinit();
 
         if (self.user) |*user| {
-            user.deinit(self.allocator);
+            user.deinit();
         }
 
         if (self.fingerprint) |*fp| {
@@ -183,7 +183,7 @@ pub const Scope = struct {
     /// Set user information
     pub fn setUser(self: *Scope, user: User) void {
         if (self.user) |*old_user| {
-            old_user.deinit(self.allocator);
+            old_user.deinit();
         }
         self.user = user;
     }
@@ -700,11 +700,11 @@ test "Scope - user management" {
     defer test_scope.deinit();
 
     const test_user = User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
-        .email = try allocator.dupe(u8, "test@example.com"),
-        .name = try allocator.dupe(u8, "Test User"),
-        .ip_address = try allocator.dupe(u8, "127.0.0.1"),
+        .id = "123",
+        .username = "testuser",
+        .email = "test@example.com",
+        .name = "Test User",
+        .ip_address = "127.0.0.1",
     };
 
     test_scope.setUser(test_user);
@@ -714,8 +714,8 @@ test "Scope - user management" {
     try testing.expectEqualStrings("test@example.com", test_scope.user.?.email.?);
 
     const new_user = User{
-        .id = try allocator.dupe(u8, "456"),
-        .username = try allocator.dupe(u8, "newuser"),
+        .id = "456",
+        .username = "newuser",
         .email = null,
         .name = null,
         .ip_address = null,
@@ -829,8 +829,8 @@ test "Scope - fork functionality" {
     try original_scope.setTag("version", "1.0.0");
 
     const user = User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
+        .id = "123",
+        .username = "testuser",
         .email = null,
         .name = null,
         .ip_address = null,
@@ -889,8 +889,8 @@ test "Scope - merge functionality" {
     try source_scope.setTag("shared", "overridden"); // This should override target
 
     const user = User{
-        .id = try allocator.dupe(u8, "456"),
-        .username = try allocator.dupe(u8, "sourceuser"),
+        .id = "456",
+        .username = "sourceuser",
         .email = null,
         .name = null,
         .ip_address = null,
@@ -965,7 +965,7 @@ test "Scope - scope manager functionality" {
     // Test convenience functions
     try setTag("convenience_tag", "convenience_value");
     const user = User{
-        .id = try allocator.dupe(u8, "convenience_user"),
+        .id = "convenience_user",
         .username = null,
         .email = null,
         .name = null,
@@ -1089,11 +1089,11 @@ test "Scope - complex fork with all data types" {
     original.level = Level.warning;
 
     const user = User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
-        .email = try allocator.dupe(u8, "test@example.com"),
-        .name = try allocator.dupe(u8, "Test User"),
-        .ip_address = try allocator.dupe(u8, "192.168.1.1"),
+        .id = "123",
+        .username = "testuser",
+        .email = "test@example.com",
+        .name = "Test User",
+        .ip_address = "192.168.1.1",
     };
     original.setUser(user);
 

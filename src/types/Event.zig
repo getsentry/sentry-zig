@@ -7,6 +7,8 @@ const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
 const json_utils = @import("../utils/json_utils.zig");
 
+const Allocator = std.mem.Allocator;
+
 // Thread-local PRNG for event ID generation with counter for uniqueness
 threadlocal var event_id_prng: ?Random.DefaultPrng = null;
 threadlocal var event_id_counter: u64 = 0;
@@ -80,6 +82,8 @@ pub const EventError = struct {
 
 /// Exception interface
 pub const Exception = struct {
+    allocator: ?Allocator = null,
+
     type: ?[]const u8 = null,
     value: ?[]const u8 = null,
     module: ?[]const u8 = null,
@@ -91,13 +95,51 @@ pub const Exception = struct {
         if (self.type) |exception_type| allocator.free(exception_type);
         if (self.value) |value| allocator.free(value);
         if (self.module) |module| allocator.free(module);
-        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
         if (self.mechanism) |*mechanism| mechanism.deinit(allocator);
+    }
+
+    pub fn jsonStringify(self: Exception, jw: anytype) !void {
+        try jw.beginObject();
+
+        if (self.type) |@"type"| {
+            try jw.objectField("type");
+            try jw.write(@"type");
+        }
+
+        if (self.value) |value| {
+            try jw.objectField("value");
+            try jw.write(value);
+        }
+
+        if (self.module) |module| {
+            try jw.objectField("module");
+            try jw.write(module);
+        }
+
+        if (self.thread_id) |thread_id| {
+            try jw.objectField("thread_id");
+            try jw.write(thread_id);
+        }
+
+        if (self.stacktrace) |stacktrace| {
+            try jw.objectField("stacktrace");
+            try jw.write(stacktrace);
+        }
+
+        if (self.mechanism) |mechanism| {
+            try jw.objectField("mechanism");
+            try jw.write(mechanism);
+        }
+
+        try jw.endObject();
     }
 };
 
 /// Stack trace interface
 pub const StackTrace = struct {
+    allocator: ?Allocator = null,
+
     frames: []Frame,
     registers: ?std.StringHashMap([]const u8) = null,
 
@@ -116,17 +158,17 @@ pub const StackTrace = struct {
         try jw.endObject();
     }
 
-    pub fn deinit(self: *StackTrace, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *StackTrace) void {
         for (self.frames) |*frame| {
-            frame.deinit(allocator);
+            frame.deinit();
         }
-        allocator.free(self.frames);
+        if (self.allocator) |allocator| allocator.free(self.frames);
 
         if (self.registers) |*registers| {
             var iterator = registers.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             registers.deinit();
         }
@@ -135,6 +177,8 @@ pub const StackTrace = struct {
 
 /// Stack frame
 pub const Frame = struct {
+    allocator: ?Allocator = null,
+
     filename: ?[]const u8 = null,
     function: ?[]const u8 = null,
     module: ?[]const u8 = null,
@@ -232,42 +276,42 @@ pub const Frame = struct {
         try jw.endObject();
     }
 
-    pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
-        if (self.filename) |filename| allocator.free(filename);
-        if (self.function) |function| allocator.free(function);
-        if (self.module) |module| allocator.free(module);
-        if (self.abs_path) |abs_path| allocator.free(abs_path);
-        if (self.context_line) |context_line| allocator.free(context_line);
+    pub fn deinit(self: *Frame) void {
+        if (self.allocator) |allocator| if (self.filename) |filename| allocator.free(filename);
+        if (self.allocator) |allocator| if (self.function) |function| allocator.free(function);
+        if (self.allocator) |allocator| if (self.module) |module| allocator.free(module);
+        if (self.allocator) |allocator| if (self.abs_path) |abs_path| allocator.free(abs_path);
+        if (self.allocator) |allocator| if (self.context_line) |context_line| allocator.free(context_line);
 
         if (self.pre_context) |pre_context| {
             for (pre_context) |line| {
-                allocator.free(line);
+                if (self.allocator) |allocator| allocator.free(line);
             }
-            allocator.free(pre_context);
+            if (self.allocator) |allocator| allocator.free(pre_context);
         }
 
         if (self.post_context) |post_context| {
             for (post_context) |line| {
-                allocator.free(line);
+                if (self.allocator) |allocator| allocator.free(line);
             }
-            allocator.free(post_context);
+            if (self.allocator) |allocator| allocator.free(post_context);
         }
 
         if (self.vars) |*vars| {
             var iterator = vars.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             vars.deinit();
         }
 
-        if (self.package) |package| allocator.free(package);
-        if (self.platform) |platform| allocator.free(platform);
-        if (self.image_addr) |image_addr| allocator.free(image_addr);
-        if (self.symbol) |symbol| allocator.free(symbol);
-        if (self.symbol_addr) |symbol_addr| allocator.free(symbol_addr);
-        if (self.instruction_addr) |instruction_addr| allocator.free(instruction_addr);
+        if (self.allocator) |allocator| if (self.package) |package| allocator.free(package);
+        if (self.allocator) |allocator| if (self.platform) |platform| allocator.free(platform);
+        if (self.allocator) |allocator| if (self.image_addr) |image_addr| allocator.free(image_addr);
+        if (self.allocator) |allocator| if (self.symbol) |symbol| allocator.free(symbol);
+        if (self.allocator) |allocator| if (self.symbol_addr) |symbol_addr| allocator.free(symbol_addr);
+        if (self.allocator) |allocator| if (self.instruction_addr) |instruction_addr| allocator.free(instruction_addr);
     }
 };
 
@@ -451,7 +495,7 @@ pub const Thread = struct {
 
     pub fn deinit(self: *Thread, allocator: std.mem.Allocator) void {
         if (self.name) |name| allocator.free(name);
-        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
 
         if (self.held_locks) |*held_locks| {
             var iterator = held_locks.iterator();
@@ -622,10 +666,13 @@ pub const Template = struct {
 
 /// Main Event struct containing all required and optional attributes and interfaces
 pub const Event = struct {
+    allocator: ?Allocator = null,
+
     // Required attributes
     event_id: EventId,
     timestamp: f64,
     platform: []const u8 = "native",
+    allocated_platform: bool = false,
 
     // Optional attributes
     level: ?Level = null,
@@ -770,26 +817,95 @@ pub const Event = struct {
         try jw.endObject();
     }
 
-    pub fn deinit(self: *Event, allocator: std.mem.Allocator) void {
-        // Free platform if it's not the default literal
-        if (!std.mem.eql(u8, self.platform, "native")) {
-            allocator.free(self.platform);
+    pub fn init(
+        allocator: std.mem.Allocator,
+        event_id: EventId,
+        timestamp: f64,
+        platform: []const u8,
+        level: ?Level,
+        logger: ?[]const u8,
+        transaction: ?[]const u8,
+        server_name: ?[]const u8,
+        release: ?[]const u8,
+        dist: ?[]const u8,
+        tags: ?std.StringHashMap([]const u8),
+        environment: ?[]const u8,
+        modules: ?std.StringHashMap([]const u8),
+        fingerprint: ?[][]const u8,
+        errors: ?[]EventError,
+        exception: ?Exception,
+        message: ?Message,
+        stacktrace: ?StackTrace,
+        template: ?Template,
+        breadcrumbs: ?Breadcrumbs,
+        user: ?User,
+        request: ?Request,
+        contexts: ?Contexts,
+        threads: ?Threads,
+        debug_meta: ?DebugMeta,
+        sdk: ?SDK,
+    ) !@This() {
+        const platform_copy = try allocator.dupe(u8, platform);
+
+        const logger_copy = if (logger) |logger_capture| try allocator.dupe(u8, logger_capture) else null;
+        const transaction_copy = if (transaction) |transaction_capture| try allocator.dupe(u8, transaction_capture) else null;
+        const server_name_copy = if (server_name) |server_name_capture| try allocator.dupe(u8, server_name_capture) else null;
+        const release_copy = if (release) |release_capture| try allocator.dupe(u8, release_capture) else null;
+        const dist_copy = if (dist) |dist_capture| try allocator.dupe(u8, dist_capture) else null;
+
+        const environment_copy = if (environment) |environment_capture| try allocator.dupe(u8, environment_capture) else null;
+
+        return .{
+            .allocator = allocator,
+            .allocated_platform = true,
+
+            .event_id = event_id,
+            .timestamp = timestamp,
+            .platform = platform_copy,
+            .level = level,
+            .logger = logger_copy,
+            .transaction = transaction_copy,
+            .server_name = server_name_copy,
+            .release = release_copy,
+            .dist = dist_copy,
+            .tags = tags,
+            .environment = environment_copy,
+            .modules = modules,
+            .fingerprint = fingerprint,
+            .errors = errors,
+            .exception = exception,
+            .message = message,
+            .stacktrace = stacktrace,
+            .template = template,
+            .breadcrumbs = breadcrumbs,
+            .user = if (user) |user_capture| user_capture.clone(allocator) catch null else null,
+            .request = request,
+            .contexts = contexts,
+            .threads = threads,
+            .debug_meta = debug_meta,
+            .sdk = sdk,
+        };
+    }
+
+    pub fn deinit(self: *Event) void {
+        if (self.allocated_platform) {
+            if (self.allocator) |allocator| allocator.free(self.platform);
         }
 
         // Free optional string attributes
-        if (self.logger) |logger| allocator.free(logger);
-        if (self.transaction) |transaction| allocator.free(transaction);
-        if (self.server_name) |server_name| allocator.free(server_name);
-        if (self.release) |release| allocator.free(release);
-        if (self.dist) |dist| allocator.free(dist);
-        if (self.environment) |environment| allocator.free(environment);
+        if (self.allocator) |allocator| if (self.logger) |logger| allocator.free(logger);
+        if (self.allocator) |allocator| if (self.transaction) |transaction| allocator.free(transaction);
+        if (self.allocator) |allocator| if (self.server_name) |server_name| allocator.free(server_name);
+        if (self.allocator) |allocator| if (self.release) |release| allocator.free(release);
+        if (self.allocator) |allocator| if (self.dist) |dist| allocator.free(dist);
+        if (self.allocator) |allocator| if (self.environment) |environment| allocator.free(environment);
 
         // Free tags HashMap
         if (self.tags) |*tags| {
             var iterator = tags.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             tags.deinit();
         }
@@ -798,8 +914,8 @@ pub const Event = struct {
         if (self.modules) |*modules| {
             var iterator = modules.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             modules.deinit();
         }
@@ -807,35 +923,35 @@ pub const Event = struct {
         // Free fingerprint slice
         if (self.fingerprint) |fingerprint| {
             for (fingerprint) |fp| {
-                allocator.free(fp);
+                if (self.allocator) |allocator| allocator.free(fp);
             }
-            allocator.free(fingerprint);
+            if (self.allocator) |allocator| allocator.free(fingerprint);
         }
 
         // Free errors slice
         if (self.errors) |errors| {
             for (errors) |*error_item| {
-                error_item.deinit(allocator);
+                if (self.allocator) |allocator| error_item.deinit(allocator);
             }
-            allocator.free(errors);
+            if (self.allocator) |allocator| allocator.free(errors);
         }
 
         // Free core interfaces
-        if (self.exception) |*exception| exception.deinit(allocator);
-        if (self.message) |*message| message.deinit(allocator);
-        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
-        if (self.template) |*template| template.deinit(allocator);
+        if (self.allocator) |allocator| if (self.exception) |*exception| exception.deinit(allocator);
+        if (self.allocator) |allocator| if (self.message) |*message| message.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
+        if (self.allocator) |allocator| if (self.template) |*template| template.deinit(allocator);
 
         // Free scope interfaces
-        if (self.breadcrumbs) |*breadcrumbs| breadcrumbs.deinit(allocator);
-        if (self.user) |*user| user.deinit(allocator);
-        if (self.request) |*request| request.deinit(allocator);
-        if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
-        if (self.threads) |*threads| threads.deinit(allocator);
+        if (self.allocator) |allocator| if (self.breadcrumbs) |*breadcrumbs| breadcrumbs.deinit(allocator);
+        if (self.user) |*user| user.deinit();
+        if (self.allocator) |allocator| if (self.request) |*request| request.deinit(allocator);
+        if (self.allocator) |allocator| if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
+        if (self.allocator) |allocator| if (self.threads) |*threads| threads.deinit(allocator);
 
         // Free other interfaces
-        if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);
-        if (self.sdk) |*sdk| sdk.deinit(allocator);
+        if (self.allocator) |allocator| if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);
+        if (self.allocator) |allocator| if (self.sdk) |*sdk| sdk.deinit(allocator);
     }
 
     /// Create an Event from a message and level
