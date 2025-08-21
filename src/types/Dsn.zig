@@ -53,6 +53,7 @@ pub const Dsn = struct {
 
     pub fn clone(self: Dsn, allocator: Allocator) !@This() {
         return .{
+            .allocator = allocator,
             .scheme = try allocator.dupe(u8, self.scheme),
             .host = try allocator.dupe(u8, self.host),
             .port = self.port,
