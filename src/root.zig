@@ -40,7 +40,8 @@ pub fn captureMessage(message: []const u8, level: Level) !?EventId {
 }
 
 pub fn captureError(allocator: Allocator, err: anyerror) !?EventId {
-    const event = Event.fromError(allocator, err);
+    var event = Event.fromError(allocator, err);
+    errdefer event.deinit(allocator);
     return captureEvent(event);
 }
 
