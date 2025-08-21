@@ -18,16 +18,14 @@ You need:
 
 ### Installation
 
-#### Using Zig Package Manager (Recommended)
-
-Add sentry-zig to your project using the Zig package manager:
+Ensure your project has a `build.zig.zon` file, then:
 
 ```bash
-# Add the dependency (replace with actual URL when published)
+# Add the dependency 
 zig fetch --save https://github.com/getsentry/sentry-zig/archive/refs/heads/main.tar.gz
 ```
 
-Then in your `build.zig`, add the sentry-zig dependency:
+Then update your `build.zig`:
 
 ```zig
 const std = @import("std");

@@ -10,6 +10,7 @@ pub const Dsn = types.Dsn;
 pub const Level = types.Level;
 pub const StackTrace = types.StackTrace;
 pub const Exception = types.Exception;
+pub const Mechanism = types.Mechanism;
 pub const Frame = types.Frame;
 
 pub const SentryClient = @import("client.zig").SentryClient;
@@ -39,9 +40,40 @@ pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     return captureEvent(event);
 }
 
+/// Create an Event from an error with automatic stack trace capture
+fn eventFromError(allocator: Allocator, err: anyerror) Event {
+    // Try to collect error trace if available
+    const stacktrace = stack_trace.collectErrorTrace(allocator, @errorReturnTrace()) catch null;
+
+    // Get error name
+    const error_name = @errorName(err);
+
+    // Create exception
+    const exception = Exception{
+        .type = error_name,
+        .value = error_name,
+        .module = null,
+        .thread_id = @as(u64, @intCast(std.Thread.getCurrentId())),
+        .stacktrace = stacktrace,
+        .mechanism = Mechanism{
+            .type = "error",
+            .handled = true,
+        },
+    };
+
+    return Event{
+        .event_id = EventId.new(),
+        .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
+        .platform = "native",
+        .level = Level.@"error",
+        .exception = exception,
+        .logger = "error_handler",
+    };
+}
+
 pub fn captureError(err: anyerror) !?EventId {
     const allocator = try scopes.getAllocator();
-    var event = Event.fromError(allocator, err);
+    var event = eventFromError(allocator, err);
     errdefer event.deinit();
     return captureEvent(event);
 }

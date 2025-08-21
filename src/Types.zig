@@ -15,6 +15,7 @@ pub const Event = @import("types/Event.zig").Event;
 pub const EventId = @import("types/Event.zig").EventId;
 pub const StackTrace = @import("types/Event.zig").StackTrace;
 pub const Exception = @import("types/Event.zig").Exception;
+pub const Mechanism = @import("types/Event.zig").Mechanism;
 pub const Frame = @import("types/Event.zig").Frame;
 pub const Breadcrumbs = @import("types/Event.zig").Breadcrumbs;
 pub const Message = @import("types/Event.zig").Message;
