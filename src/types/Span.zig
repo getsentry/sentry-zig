@@ -161,6 +161,7 @@ pub const Span = struct {
             span.trace_id = p.trace_id;
             span.parent_span_id = p.span_id;
             span.origin = p.origin;
+            span.sampled = p.sampled; // Child spans inherit parent sampling decision
             span.recorder = p.recorder; // Share recorder with parent
         } else {
             // This is a transaction (root span)

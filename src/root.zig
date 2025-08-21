@@ -57,6 +57,9 @@ pub const getCurrentSpan = tracing.getCurrentSpan;
 pub const getCurrentTransaction = tracing.getCurrentTransaction;
 pub const getSentryTrace = tracing.getSentryTrace;
 
+// Trace context management (equivalent to sentry_set_trace in Native SDK)
+pub const setTrace = scopes.setTrace;
+
 test "compile and test everything" {
     _ = @import("panic_handler.zig");
     std.testing.refAllDeclsRecursive(@This());

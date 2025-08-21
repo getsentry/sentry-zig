@@ -280,7 +280,7 @@ pub const Scope = struct {
         try self.contexts.put(owned_key, cloned_context);
     }
 
-    fn applyToEvent(self: *const Scope, event: *Event) !void {
+    pub fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
         try self.applyTagsToEvent(event);
         try self.applyUserToEvent(event);
@@ -399,15 +399,29 @@ pub const Scope = struct {
     }
 
     fn applyTracingToEvent(self: *const Scope, event: *Event) void {
-        // Apply tracing context if event doesn't already have it
-        if (event.trace_id == null) {
-            event.trace_id = self.propagation_context.trace_id;
-        }
-        if (event.span_id == null) {
-            event.span_id = self.propagation_context.span_id;
-        }
-        if (event.parent_span_id == null) {
-            event.parent_span_id = self.propagation_context.parent_span_id;
+        // Priority: active span > propagation_context
+        if (self.span) |active_span| {
+            // Performance mode: inherit from active span
+            if (event.trace_id == null) {
+                event.trace_id = active_span.trace_id;
+            }
+            if (event.span_id == null) {
+                event.span_id = active_span.span_id;
+            }
+            if (event.parent_span_id == null) {
+                event.parent_span_id = active_span.parent_span_id;
+            }
+        } else {
+            // TwP mode: inherit from propagation_context
+            if (event.trace_id == null) {
+                event.trace_id = self.propagation_context.trace_id;
+            }
+            if (event.span_id == null) {
+                event.span_id = self.propagation_context.span_id;
+            }
+            if (event.parent_span_id == null) {
+                event.parent_span_id = self.propagation_context.parent_span_id;
+            }
         }
     }
 
