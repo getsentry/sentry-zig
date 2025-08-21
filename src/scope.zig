@@ -40,7 +40,7 @@ pub const Scope = struct {
 
     // Tracing context
     propagation_context: PropagationContext,
-    span: ?*anyopaque = null,
+    span: ?*Span = null,
 
     const MAX_BREADCRUMBS = 100;
 
@@ -470,21 +470,19 @@ pub const Scope = struct {
         self.client = client;
     }
 
-    /// Set the current span or transaction on this scope
-    pub fn setSpan(self: *Scope, span_or_transaction: ?*anyopaque) void {
-        self.span = span_or_transaction;
+    /// Set the current span on this scope
+    pub fn setSpan(self: *Scope, span: ?*Span) void {
+        self.span = span;
     }
 
-    /// Get the current span or transaction from this scope
-    pub fn getSpan(self: *const Scope) ?*anyopaque {
+    /// Get the current span from this scope
+    pub fn getSpan(self: *const Scope) ?*Span {
         return self.span;
     }
 
-    /// Generate sentry-trace header from current span/transaction
+    /// Generate sentry-trace header from current span
     pub fn traceHeaders(self: *const Scope, allocator: std.mem.Allocator) !?[]u8 {
-        if (self.span) |span_ptr| {
-            // Use the active span's trace information
-            const span: *Span = @ptrCast(@alignCast(span_ptr));
+        if (self.span) |span| {
             return try span.toSentryTrace(allocator);
         }
 

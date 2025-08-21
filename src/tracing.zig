@@ -145,7 +145,7 @@ pub fn finishTransaction(transaction: *Span) void {
 
     // Clear transaction from scope
     if (scope.getCurrentScope() catch null) |current_scope| {
-        if (current_scope.getSpan() == @as(?*anyopaque, transaction)) {
+        if (current_scope.getSpan() == transaction) {
             current_scope.setSpan(null);
         }
     }
