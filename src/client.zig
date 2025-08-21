@@ -197,7 +197,7 @@ pub const SentryClient = struct {
         self.options.deinit();
 
         // Clean up scope state
-        scope.deinitScopeManager(self.allocator);
+        scope.deinitScopeManager();
     }
 };
 
