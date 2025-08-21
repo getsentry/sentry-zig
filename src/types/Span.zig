@@ -148,9 +148,12 @@ pub const Span = struct {
     pub fn init(allocator: Allocator, op: []const u8, parent: ?*Span) !*Span {
         const span = try allocator.create(Span);
 
+        // Get high-precision timestamp for proper sequencing
+        const current_time = @as(f64, @floatFromInt(std.time.microTimestamp())) / 1_000_000.0;
+
         span.* = Span{
             .op = try allocator.dupe(u8, op),
-            .start_time = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0,
+            .start_time = current_time,
             .allocator = allocator,
             .parent = parent,
             .trace_id = undefined,
@@ -328,7 +331,8 @@ pub const Span = struct {
     pub fn finish(self: *Span) void {
         if (self.finished) return;
 
-        self.end_time = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0;
+        // Use high-precision timestamp for proper sequencing
+        self.end_time = @as(f64, @floatFromInt(std.time.microTimestamp())) / 1_000_000.0;
         self.finished = true;
     }
 
