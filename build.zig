@@ -56,6 +56,18 @@ pub fn build(b: *std.Build) void {
     // running `zig build`).
     b.installArtifact(lib);
 
+    // Export the main module for external consumption
+    // This allows other projects to import it via b.dependency().module()
+    const sentry_module = b.addModule("sentry_zig", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Add the same dependencies that the library has
+    sentry_module.addOptions("sentry_build", sentry_build_opts);
+    sentry_module.addImport("types", types);
+
     // Examples
     addExample(b, target, optimize, lib, "panic_handler", "Panic handler example");
     addExample(b, target, optimize, lib, "capture_message", "Run the captureMessage demo");
