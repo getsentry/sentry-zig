@@ -39,7 +39,8 @@ pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     return captureEvent(event);
 }
 
-pub fn captureError(allocator: Allocator, err: anyerror) !?EventId {
+pub fn captureError(err: anyerror) !?EventId {
+    const allocator = try scopes.getAllocator();
     var event = Event.fromError(allocator, err);
     errdefer event.deinit(allocator);
     return captureEvent(event);
