@@ -10,14 +10,14 @@ pub fn collectStackTrace(allocator: std.mem.Allocator, first_trace_addr: ?usize)
     var frames_list = std.ArrayList(Frame).init(allocator);
     errdefer {
         for (frames_list.items) |*frame| {
-            frame.deinit(allocator);
+            frame.deinit();
         }
         frames_list.deinit();
     }
 
     const debug_info = std.debug.getSelfDebugInfo() catch null;
     var stack_iterator = std.debug.StackIterator.init(first_trace_addr, null);
-    
+
     const project_root = getProjectRoot(allocator);
     defer if (project_root) |root| allocator.free(root);
 
@@ -32,7 +32,7 @@ pub fn collectStackTrace(allocator: std.mem.Allocator, first_trace_addr: ?usize)
         } else {
             categorizeFrame(&first_frame, project_root);
         }
-        
+
         if (isValidFrame(&first_frame) and !isPanicHandlerFrame(first_frame.filename, first_frame.function)) {
             try frames_list.append(first_frame);
         } else {
@@ -80,13 +80,13 @@ pub fn collectErrorTrace(allocator: std.mem.Allocator, err_trace: ?*std.builtin.
     var frames_list = std.ArrayList(Frame).init(allocator);
     errdefer {
         for (frames_list.items) |*frame| {
-            frame.deinit(allocator);
+            frame.deinit();
         }
         frames_list.deinit();
     }
 
     const debug_info = std.debug.getSelfDebugInfo() catch null;
-    
+
     const project_root = getProjectRoot(allocator);
     defer if (project_root) |root| allocator.free(root);
 
@@ -186,7 +186,7 @@ test "collectStackTrace creates frames with addresses" {
     const allocator = std.testing.allocator;
 
     var stacktrace = try collectStackTrace(allocator, @returnAddress());
-    defer stacktrace.deinit(allocator);
+    defer stacktrace.deinit();
 
     try std.testing.expect(stacktrace.frames.len > 0);
     for (stacktrace.frames) |frame| {
@@ -322,8 +322,10 @@ fn extractSymbolInfoWithCategorization(allocator: std.mem.Allocator, debug_info:
 test "parseSymbolLine extracts file and line info" {
     const allocator = std.testing.allocator;
 
-    var frame = Frame{};
-    defer frame.deinit(allocator);
+    var frame = Frame{
+        .allocator = allocator,
+    };
+    defer frame.deinit();
 
     const test_line = "src/main.zig:42:13: 0x123456 in main (test.exe)";
     parseSymbolLine(allocator, test_line, &frame);
