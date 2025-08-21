@@ -87,7 +87,7 @@ pub const SentryClient = struct {
         }
 
         const envelope_item = try self.transport.envelopeFromEvent(prepared_event);
-        defer self.allocator.free(envelope_item.data); // Free the allocated data
+        defer self.allocator.free(envelope_item.data);
 
         var buf = [_]SentryEnvelopeItem{.{ .data = envelope_item.data, .header = envelope_item.header }};
         const envelope = SentryEnvelope{
@@ -130,7 +130,7 @@ pub const SentryClient = struct {
     fn prepareEvent(self: *SentryClient, event: Event) !Event {
         var prepared = event;
 
-        // Add SDK info
+
         if (prepared.sdk == null) {
             prepared.sdk = SDK{
                 .name = "sentry.zig",
@@ -139,12 +139,12 @@ pub const SentryClient = struct {
             };
         }
 
-        // Add environment from options
+
         if (prepared.environment == null and self.options.environment != null) {
             prepared.environment = self.options.environment;
         }
 
-        // Add release from options
+
         if (prepared.release == null and self.options.release != null) {
             prepared.release = self.options.release;
         }
@@ -265,7 +265,7 @@ test "event ID generation is UUID v4 compatible" {
     // Generate several IDs to ensure they're unique and properly formatted
     var seen_ids = std.hash_map.StringHashMap(void).init(std.testing.allocator);
     defer {
-        // Free all the allocated strings
+
         var iter = seen_ids.iterator();
         while (iter.next()) |entry| {
             std.testing.allocator.free(entry.key_ptr.*);

@@ -142,7 +142,7 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
                     salvaged[i] = dst;
                 }
                 // Now free all allocated strings in the original frames
-                // before releasing the backing ArrayList memory
+
                 i = 0;
                 while (i < collected_frames.len) : (i += 1) {
                     collected_frames[i].deinit();

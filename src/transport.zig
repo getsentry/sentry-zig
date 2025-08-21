@@ -125,7 +125,7 @@ pub const HttpTransport = struct {
         for (envelope.items, 0..) |item, i| {
             try std.json.stringify(item.header, std.json.StringifyOptions{}, list.writer());
             try list.append('\n');
-            // Add the actual item data
+
             try list.appendSlice(item.data);
             // Only add newline if not the last item
             if (i < envelope.items.len - 1) {

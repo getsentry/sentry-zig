@@ -12,6 +12,7 @@ const Contexts = types.Contexts;
 const TraceId = types.TraceId;
 const SpanId = types.SpanId;
 const PropagationContext = types.PropagationContext;
+const Span = types.Span;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -99,7 +100,7 @@ pub const Scope = struct {
     pub fn fork(self: *const Scope) !Scope {
         var new_scope = Scope.init(self.allocator);
 
-        // Copy level
+
         new_scope.level = self.level;
 
         var tag_iterator = self.tags.iterator();
@@ -144,7 +145,7 @@ pub const Scope = struct {
             try new_scope.breadcrumbs.append(new_crumb);
         }
 
-        // Copy contexts
+
         var context_iterator = self.contexts.iterator();
         while (context_iterator.next()) |entry| {
             const context_key = try self.allocator.dupe(u8, entry.key_ptr.*);
@@ -160,7 +161,7 @@ pub const Scope = struct {
             try new_scope.contexts.put(context_key, new_context);
         }
 
-        // Copy propagation context
+
         new_scope.propagation_context = self.propagation_context.clone();
 
         return new_scope;
@@ -225,7 +226,7 @@ pub const Scope = struct {
             oldest.deinit(self.allocator);
         }
 
-        // Clone breadcrumb strings to ensure ownership
+
         var cloned_breadcrumb = Breadcrumb{
             .message = try self.allocator.dupe(u8, breadcrumb.message),
             .type = breadcrumb.type,
@@ -235,7 +236,7 @@ pub const Scope = struct {
             .data = null,
         };
 
-        // Clone data HashMap if present
+
         if (breadcrumb.data) |data| {
             cloned_breadcrumb.data = std.StringHashMap([]const u8).init(self.allocator);
             var data_iterator = data.iterator();
@@ -273,7 +274,7 @@ pub const Scope = struct {
             old_value.deinit();
         }
 
-        // Clone all strings in the context data
+
         var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
         var context_iterator = context_data.iterator();
         while (context_iterator.next()) |entry| {
@@ -341,18 +342,18 @@ pub const Scope = struct {
 
         var all_breadcrumbs = try self.allocator.alloc(Breadcrumb, total_count);
 
-        // Copy existing breadcrumbs if any
+
         if (event.breadcrumbs) |existing| {
             for (existing.values, 0..) |crumb, i| {
                 all_breadcrumbs[i] = crumb;
             }
-            // Free the old array but not the breadcrumbs themselves
+
             self.allocator.free(existing.values);
         }
 
-        // Add scope breadcrumbs
+
         for (self.breadcrumbs.items, existing_count..) |crumb, i| {
-            // Clone the breadcrumb
+
             var cloned_crumb = Breadcrumb{
                 .message = try self.allocator.dupe(u8, crumb.message),
                 .type = crumb.type,
@@ -490,15 +491,13 @@ pub const Scope = struct {
 
     /// Generate sentry-trace header from current span/transaction
     pub fn traceHeaders(self: *const Scope, allocator: std.mem.Allocator) !?[]u8 {
-        if (self.span == null) {
-            // Generate from propagation context
-            const trace_hex = self.propagation_context.trace_id.toHexFixed();
-            const span_hex = self.propagation_context.span_id.toHexFixed();
-            return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
+        if (self.span) |span_ptr| {
+            // Use the active span's trace information
+            const span: *Span = @ptrCast(@alignCast(span_ptr));
+            return try span.toSentryTrace(allocator);
         }
 
-        // TODO: Determine if span is root span or child span and call appropriate method
-        // For now, generate from propagation context
+        // Fall back to propagation context if no active span
         const trace_hex = self.propagation_context.trace_id.toHexFixed();
         const span_hex = self.propagation_context.span_id.toHexFixed();
         return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
@@ -856,7 +855,7 @@ test "Scope - breadcrumb limit enforcement" {
     var i: usize = 0;
     while (i <= Scope.MAX_BREADCRUMBS + 5) : (i += 1) {
         const message = try std.fmt.allocPrint(allocator, "Breadcrumb {}", .{i});
-        defer allocator.free(message); // Free the original string after addBreadcrumb clones it
+        defer allocator.free(message);
 
         const breadcrumb = Breadcrumb{
             .message = message,
@@ -873,7 +872,7 @@ test "Scope - breadcrumb limit enforcement" {
     try testing.expectEqualStrings("Breadcrumb 6", test_scope.breadcrumbs.items[0].message);
 }
 
-test "Scope - complex fork with all data types" {
+test "Scope - fork with all data types" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

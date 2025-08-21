@@ -222,7 +222,6 @@ pub const Span = struct {
         const owned_key = try self.allocator.dupe(u8, key);
         const owned_value = try self.allocator.dupe(u8, value);
 
-        // Remove old entry if exists
         if (self.tags.?.fetchRemove(key)) |old| {
             self.allocator.free(old.key);
             self.allocator.free(old.value);
@@ -240,7 +239,6 @@ pub const Span = struct {
         const owned_key = try self.allocator.dupe(u8, key);
         const owned_value = try self.allocator.dupe(u8, value);
 
-        // Remove old entry if exists
         if (self.data.?.fetchRemove(key)) |old| {
             self.allocator.free(old.key);
             self.allocator.free(old.value);
@@ -260,7 +258,6 @@ pub const Span = struct {
         const owned_key = try self.allocator.dupe(u8, key);
         errdefer self.allocator.free(owned_key);
 
-        // Remove old context if exists
         if (self.contexts.?.fetchRemove(key)) |old_entry| {
             self.allocator.free(old_entry.key);
             var old_value = old_entry.value;
@@ -272,7 +269,7 @@ pub const Span = struct {
             old_value.deinit();
         }
 
-        // Clone all strings in the context data
+
         var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
         var context_iterator = context_data.iterator();
         while (context_iterator.next()) |entry| {
