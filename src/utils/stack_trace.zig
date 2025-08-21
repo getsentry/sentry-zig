@@ -339,3 +339,226 @@ test "parseSymbolLine extracts file and line info" {
     try std.testing.expect(frame.function != null);
     try std.testing.expectEqualStrings("main", frame.function.?);
 }
+
+// ===== FRAME DETECTION TESTS =====
+
+test "frame detection: isValidFrame correctly validates frames" {
+    var frame_valid = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+        .filename = "src/main.zig",
+        .function = "main",
+    };
+    try std.testing.expect(isValidFrame(&frame_valid));
+
+    var frame_only_addr = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+    };
+    try std.testing.expect(isValidFrame(&frame_only_addr));
+
+    var frame_invalid_addr = Frame{
+        .instruction_addr = "invalid",
+    };
+    try std.testing.expect(!isValidFrame(&frame_invalid_addr));
+
+    var frame_no_addr = Frame{
+        .filename = "src/main.zig",
+    };
+    try std.testing.expect(!isValidFrame(&frame_no_addr));
+
+    // Test "???" frame rejection
+    var frame_question_marks = Frame{
+        .instruction_addr = "0x1234567890abcdef",
+        .filename = "???",
+        .function = "???",
+        .abs_path = "???",
+    };
+    try std.testing.expect(!isValidFrame(&frame_question_marks));
+
+    // Test null pointer rejection
+    var frame_null_ptr = Frame{
+        .instruction_addr = "0x0",
+        .filename = "src/main.zig",
+    };
+    try std.testing.expect(!isValidFrame(&frame_null_ptr));
+}
+
+test "frame detection: isSystemFrame derived from build project root" {
+    const root = sentry_build.sentry_project_root;
+    if (root.len == 0) return error.SkipZigTest;
+
+    const in_app = std.fmt.allocPrint(std.testing.allocator, "{s}/src/main.zig", .{root}) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(in_app);
+
+    try std.testing.expect(!isSystemFrame(in_app, null));
+    try std.testing.expect(isSystemFrame("/usr/lib/libc.so", null));
+}
+
+test "frame detection: isPanicHandlerFrame correctly identifies panic handler frames" {
+    // Panic handler functions should be filtered
+    // Function-name-only should NOT be filtered (avoid false positives in user code)
+    try std.testing.expect(!isPanicHandlerFrame(null, "panicHandler"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "handlePanic"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createSentryEvent"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createEventWithFrames"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "createMinimalEvent"));
+
+    // Panic handler file with infrastructure functions
+    try std.testing.expect(isPanicHandlerFrame("/path/to/panic_handler.zig", "panicHandler"));
+    try std.testing.expect(isPanicHandlerFrame("src/panic_handler.zig", "handlePanic"));
+
+    // Not panic handler frames
+    try std.testing.expect(!isPanicHandlerFrame("src/main.zig", "main"));
+    try std.testing.expect(!isPanicHandlerFrame(null, "myFunction"));
+    try std.testing.expect(!isPanicHandlerFrame("panic_handler.zig", "userFunction")); // user function in panic handler file
+}
+
+test "frame detection: isApplicationFrame correctly identifies app frames (build-root only)" {
+    const project_root = "/home/user/myproject";
+
+    // Application frames
+    try std.testing.expect(isApplicationFrame("/home/user/myproject/src/main.zig", null, project_root));
+    try std.testing.expect(!isApplicationFrame("src/main.zig", null, null));
+    try std.testing.expect(!isApplicationFrame("src/lib.zig", "myFunction", null));
+
+    // Not application frames (system)
+    try std.testing.expect(!isApplicationFrame("/lib/zig/std/debug.zig", null, project_root));
+    try std.testing.expect(!isApplicationFrame(null, "std.debug.print", project_root));
+    try std.testing.expect(!isApplicationFrame("/usr/lib/libc.so", null, project_root));
+
+    // Not application frames ("???" frames)
+    try std.testing.expect(!isApplicationFrame("???", null, project_root));
+    try std.testing.expect(!isApplicationFrame(null, "???", project_root));
+    try std.testing.expect(!isApplicationFrame("???", "???", project_root));
+}
+
+test "frame detection: categorizeFrame sets in_app correctly" {
+    const allocator = std.testing.allocator;
+    const project_root = "/home/user/myproject";
+
+    // Application frame
+    var app_frame = Frame{
+        .allocator = allocator,
+        .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
+        .filename = allocator.dupe(u8, "/home/user/myproject/src/main.zig") catch unreachable,
+        .function = allocator.dupe(u8, "main") catch unreachable,
+    };
+    defer app_frame.deinit();
+
+    categorizeFrame(&app_frame, project_root);
+    try std.testing.expect(app_frame.in_app == true);
+
+    // System frame
+    var sys_frame = Frame{
+        .allocator = allocator,
+        .instruction_addr = allocator.dupe(u8, "0x1234567890abcdef") catch unreachable,
+        .filename = allocator.dupe(u8, "/lib/zig/std/debug.zig") catch unreachable,
+        .function = allocator.dupe(u8, "std.debug.print") catch unreachable,
+    };
+    defer sys_frame.deinit();
+
+    categorizeFrame(&sys_frame, project_root);
+    try std.testing.expect(sys_frame.in_app == false);
+
+    // Invalid frame
+    var invalid_frame = Frame{
+        .instruction_addr = null,
+    };
+
+    categorizeFrame(&invalid_frame, project_root);
+    try std.testing.expect(invalid_frame.in_app == false);
+}
+
+test "frame detection: project root detection" {
+    // This test verifies that project root detection works
+    // Note: actual detection depends on file system, so we mainly test it doesn't crash
+    const allocator = std.testing.allocator;
+    const maybe_root = getProjectRoot(allocator);
+    if (maybe_root) |root| {
+        defer allocator.free(root);
+        try std.testing.expect(root.len > 0);
+    }
+}
+
+test "frame detection: enhanced symbol extraction with categorization" {
+    const allocator = std.testing.allocator;
+    const debug_info = std.debug.getSelfDebugInfo() catch return error.SkipZigTest;
+    const project_root = getProjectRoot(allocator);
+    defer if (project_root) |root| allocator.free(root);
+
+    var frame = Frame{
+        .allocator = allocator,
+        .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{@returnAddress()}) catch return error.SkipZigTest,
+    };
+    defer frame.deinit();
+
+    extractSymbolInfoWithCategorization(allocator, debug_info, @returnAddress(), &frame, project_root);
+
+    // Frame should be categorized
+    try std.testing.expect(frame.in_app != null);
+
+    // This test function should be considered application code
+    if (frame.function) |func_name| {
+        if (std.mem.indexOf(u8, func_name, "test")) |_| {
+            try std.testing.expect(frame.in_app == true);
+        }
+    }
+}
+
+test "frame detection: build-root classification only (no fuzzy patterns)" {
+    const allocator = std.testing.allocator;
+
+    // Simulate compile-time project root from embedded debug info (no filesystem access)
+    const build_time_root = "/build/workspace/my-app";
+
+    // Test frames with compile-time paths that won't match runtime environment
+    var docker_app_frame = Frame{
+        .allocator = allocator,
+        .filename = try allocator.dupe(u8, "/build/workspace/my-app/src/main.zig"),
+        .function = try allocator.dupe(u8, "main"),
+        .lineno = 42,
+        .colno = 10,
+        .abs_path = try allocator.dupe(u8, "/build/workspace/my-app/src/main.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x1000"),
+    };
+    defer docker_app_frame.deinit();
+
+    var docker_example_frame = Frame{
+        .allocator = allocator,
+        .filename = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
+        .function = try allocator.dupe(u8, "demoFunction"),
+        .lineno = 15,
+        .colno = 5,
+        .abs_path = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x2000"),
+    };
+    defer docker_example_frame.deinit();
+
+    var docker_lib_frame = Frame{
+        .allocator = allocator,
+        .filename = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
+        .function = try allocator.dupe(u8, "main"),
+        .lineno = 672,
+        .colno = 0,
+        .abs_path = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
+        .in_app = null,
+        .instruction_addr = try allocator.dupe(u8, "0x3000"),
+    };
+    defer docker_lib_frame.deinit();
+
+    // Test with exact project root match
+    categorizeFrame(&docker_app_frame, build_time_root);
+    try std.testing.expectEqual(true, docker_app_frame.in_app);
+
+    categorizeFrame(&docker_example_frame, build_time_root);
+    try std.testing.expectEqual(true, docker_example_frame.in_app);
+
+    categorizeFrame(&docker_lib_frame, build_time_root);
+    try std.testing.expectEqual(false, docker_lib_frame.in_app);
+
+    // With build-root-only logic, a different runtime root yields false
+    docker_app_frame.in_app = null;
+    categorizeFrame(&docker_app_frame, "/app");
+    try std.testing.expectEqual(false, docker_app_frame.in_app);
+}
