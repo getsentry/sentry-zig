@@ -511,6 +511,25 @@ const GlobalScopeWrapper = struct {
         defer self.mutex.unlock();
         return self.is_alive;
     }
+
+    /// Reset the wrapper to initial state while keeping the same mutex
+    pub fn reset(self: *Self) void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        // Clean up existing scope if any
+        if (self.scope) |scope| {
+            scope.deinit();
+            if (self.allocator) |allocator| {
+                allocator.destroy(scope);
+            }
+        }
+
+        // Reset to initial state
+        self.scope = null;
+        self.allocator = null;
+        self.is_alive = true;
+    }
 };
 
 var global_scope_wrapper = GlobalScopeWrapper.init();
@@ -729,10 +748,8 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
-    // Clean up global scope using the wrapper
-    global_scope_wrapper.deinit();
-    // Reset the wrapper to be alive again for next test
-    global_scope_wrapper = GlobalScopeWrapper.init();
+    // Reset the global scope wrapper to initial state (keeps same mutex)
+    global_scope_wrapper.reset();
 
     if (thread_isolation_scope) |scope| {
         scope.deinit();
