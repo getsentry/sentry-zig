@@ -38,7 +38,7 @@ pub const SentryOptions = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.dsn) |dsn| dsn.deinit();
+        if (self.dsn) |*dsn| dsn.deinit();
 
         if (self.allocator) |allocator| if (self.environment) |environment| allocator.free(environment);
         if (self.allocator) |allocator| if (self.release) |release| allocator.free(release);

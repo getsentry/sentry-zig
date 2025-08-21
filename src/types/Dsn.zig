@@ -42,13 +42,15 @@ pub const Dsn = struct {
         };
     }
 
-    pub fn deinit(self: *const @This()) void {
-        if (self.allocator) |allocator| allocator.free(self.scheme);
-        if (self.allocator) |allocator| allocator.free(self.host);
-        if (self.allocator) |allocator| allocator.free(self.public_key);
-        if (self.allocator) |allocator| if (self.secret_key) |secret_key| allocator.free(secret_key);
-        if (self.allocator) |allocator| allocator.free(self.project_id);
-        if (self.allocator) |allocator| allocator.free(self.path);
+    pub fn deinit(self: *@This()) void {
+        if (self.allocator) |allocator| {
+            allocator.free(self.scheme);
+            allocator.free(self.host);
+            allocator.free(self.public_key);
+            if (self.secret_key) |secret_key| allocator.free(secret_key);
+            allocator.free(self.project_id);
+            allocator.free(self.path);
+        }
     }
 
     pub fn clone(self: Dsn, allocator: Allocator) !@This() {
@@ -181,7 +183,7 @@ test "DSN parsing - successful cases" {
     // Test basic DSN (most common format)
     {
         const dsn = try Dsn.parse(allocator, "https://public@sentry.example.com/1");
-        defer dsn.deinit(allocator);
+        defer dsn.deinit();
 
         try std.testing.expectEqualStrings("https", dsn.scheme);
         try std.testing.expectEqualStrings("sentry.example.com", dsn.host);
@@ -200,7 +202,7 @@ test "DSN parsing - successful cases" {
     // Test DSN with secret key (backwards compatibility)
     {
         const dsn = try Dsn.parse(allocator, "http://public:secret@example.com:8080/path/42");
-        defer dsn.deinit(allocator);
+        defer dsn.deinit();
 
         try std.testing.expectEqualStrings("http", dsn.scheme);
         try std.testing.expectEqualStrings("example.com", dsn.host);
@@ -218,7 +220,7 @@ test "DSN parsing - successful cases" {
     // Test real Sentry.io format
     {
         const dsn = try Dsn.parse(allocator, "https://abc123def456@o12345.ingest.sentry.io/6789");
-        defer dsn.deinit(allocator);
+        defer dsn.deinit();
 
         try std.testing.expectEqualStrings("https", dsn.scheme);
         try std.testing.expectEqualStrings("o12345.ingest.sentry.io", dsn.host);
@@ -232,14 +234,14 @@ test "DSN parsing - successful cases" {
     // Test getNetloc with default ports
     {
         const dsn_https = try Dsn.parse(allocator, "https://key@example.com/1");
-        defer dsn_https.deinit(allocator);
+        defer dsn_https.deinit();
 
         const netloc_https = try dsn_https.getNetloc(allocator);
         defer allocator.free(netloc_https);
         try std.testing.expectEqualStrings("example.com", netloc_https);
 
         const dsn_http = try Dsn.parse(allocator, "http://key@example.com/1");
-        defer dsn_http.deinit(allocator);
+        defer dsn_http.deinit();
 
         const netloc_http = try dsn_http.getNetloc(allocator);
         defer allocator.free(netloc_http);
@@ -249,7 +251,7 @@ test "DSN parsing - successful cases" {
     // Test getNetloc with custom port
     {
         const dsn = try Dsn.parse(allocator, "https://key@example.com:9000/1");
-        defer dsn.deinit(allocator);
+        defer dsn.deinit();
 
         const netloc = try dsn.getNetloc(allocator);
         defer allocator.free(netloc);
