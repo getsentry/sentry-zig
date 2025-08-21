@@ -4,6 +4,8 @@ const Allocator = std.mem.Allocator;
 const SentryItemType = @import("SentryItemType.zig").SentryItemType;
 
 pub const SentryEnvelopeItemHeader = struct {
+    allocator: ?Allocator = null,
+
     type: SentryItemType,
     length: i64,
     content_type: ?[]const u8 = null,
@@ -11,6 +13,42 @@ pub const SentryEnvelopeItemHeader = struct {
     attachment_type: ?[]const u8 = null,
     platform: ?[]const u8 = null,
     item_count: ?i64 = null,
+
+    pub fn init(
+        allocator: Allocator,
+        @"type": SentryItemType,
+        length: i64,
+        content_type: ?[]const u8,
+        file_name: ?[]const u8,
+        attachment_type: ?[]const u8,
+        platform: ?[]const u8,
+        item_count: ?i64,
+    ) !@This() {
+        const content_type_copy = if (content_type) |content_type_capture| try allocator.dupe(u8, content_type_capture);
+        const file_name_copy = if (file_name) |file_name_capture| try allocator.dupe(u8, file_name_capture);
+        const attachment_type_copy = if (attachment_type) |attachment_type_capture| try allocator.dupe(u8, attachment_type_capture);
+        const platform_copy = if (platform) |platform_capture| try allocator.dupe(u8, platform_capture);
+
+        return .{
+            .allocator = allocator,
+            .type = @"type",
+            .length = length,
+            .content_type = content_type_copy,
+            .file_name = file_name_copy,
+            .attachment_type = attachment_type_copy,
+            .platform = platform_copy,
+            .item_count = item_count,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.allocator) |allocator| allocator.free(self.type);
+
+        if (self.allocator) |allocator| if (self.content_type) |content_type| allocator.free(content_type);
+        if (self.allocator) |allocator| if (self.file_name) |file_name| allocator.free(file_name);
+        if (self.allocator) |allocator| if (self.attachment_type) |attachment_type| allocator.free(attachment_type);
+        if (self.allocator) |allocator| if (self.platform) |platform| allocator.free(platform);
+    }
 
     /// Custom JSON serialization to omit null optional fields
     pub fn jsonStringify(self: SentryEnvelopeItemHeader, jw: anytype) !void {

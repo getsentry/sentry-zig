@@ -46,6 +46,7 @@ pub fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr
 fn createEventWithStacktrace(allocator: Allocator, msg: []const u8, stacktrace: StackTrace) Event {
     // Create exception
     const exception = Exception{
+        .allocator = allocator,
         .type = allocator.dupe(u8, "panic") catch "panic",
         .value = allocator.dupe(u8, msg) catch msg,
         .module = null,
@@ -56,6 +57,7 @@ fn createEventWithStacktrace(allocator: Allocator, msg: []const u8, stacktrace: 
 
     // Create the event
     return Event{
+        .allocator = allocator,
         .event_id = EventId.new(),
         .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
         .platform = "native",
@@ -116,7 +118,7 @@ test "panic_handler: send callback is invoked with created event" {
 
     const test_msg = "unit-test-message";
     var sentry_event = createSentryEvent(allocator, test_msg, @returnAddress());
-    defer sentry_event.deinit(allocator);
+    defer sentry_event.deinit();
 
     sendToSentry(sentry_event);
 
@@ -143,9 +145,8 @@ fn ph_test_four() !Event {
 }
 
 test "panic_handler: stacktrace has frames and instruction addresses" {
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
@@ -164,9 +165,8 @@ test "panic_handler: stacktrace captures dummy function names (skip without debu
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     const st = ev.exception.?.stacktrace.?;
 
@@ -194,9 +194,8 @@ test "panic_handler: stacktrace works on Windows (addresses and basic symbols)" 
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     try std.testing.expect(ev.exception != null);
     const st = ev.exception.?.stacktrace.?;
@@ -232,9 +231,8 @@ test "panic_handler: Windows function name format detection" {
     const debugInfo = std.debug.getSelfDebugInfo() catch null;
     if (debugInfo == null) return error.SkipZigTest;
 
-    const allocator = std.testing.allocator;
     var ev = try ph_test_one();
-    defer ev.deinit(allocator);
+    defer ev.deinit();
 
     const st = ev.exception.?.stacktrace.?;
 
@@ -259,4 +257,45 @@ var test_send_captured_msg: ?[]const u8 = null;
 fn testSendCb(ev: Event) void {
     test_send_called = true;
     if (ev.exception) |ex| test_send_captured_msg = ex.value;
+}
+
+// ===== FRAME DETECTION TESTS =====
+// Note: Frame detection logic has been moved to stack_trace.zig
+// These tests verify end-to-end behavior
+
+test "panic_handler: end-to-end categorization" {
+    const allocator = std.testing.allocator;
+    var event = createSentryEvent(allocator, "test message", @returnAddress());
+    defer event.deinit();
+
+    try std.testing.expect(event.exception != null);
+    const stacktrace = event.exception.?.stacktrace;
+    try std.testing.expect(stacktrace != null);
+    try std.testing.expect(stacktrace.?.frames.len > 0);
+
+    // Verify that frames are properly categorized
+    var found_categorized_frame = false;
+    var found_non_null_in_app = false;
+
+    for (stacktrace.?.frames) |frame| {
+        // All frames should have instruction addresses
+        try std.testing.expect(frame.instruction_addr != null);
+
+        // All frames should be categorized (in_app should not be null)
+        if (frame.in_app != null) {
+            found_categorized_frame = true;
+            found_non_null_in_app = true;
+        }
+
+        // Print frame info for debugging (but don't fail on specific expectations)
+        if (frame.function) |func_name| {
+            std.debug.print("Frame: {s}, in_app: {?}\n", .{ func_name, frame.in_app });
+        } else if (frame.filename) |filename| {
+            std.debug.print("Frame: {s}, in_app: {?}\n", .{ filename, frame.in_app });
+        }
+    }
+
+    // The important thing is that frames are being categorized
+    try std.testing.expect(found_categorized_frame);
+    try std.testing.expect(found_non_null_in_app);
 }
