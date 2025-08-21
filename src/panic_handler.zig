@@ -83,14 +83,21 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
             categorizeFrame(&frame, project_root);
         }
 
-        // Add frame to dynamic list - this should never fail unless out of memory
-        frames_list.append(frame) catch |err| {
-            // Free strings allocated in this frame since we failed to append it
+        // Validate and filter frames just like the first frame
+        if (isValidFrame(&frame) and !isPanicHandlerFrame(frame.filename, frame.function)) {
+            // Add frame to dynamic list - this should never fail unless out of memory
+            frames_list.append(frame) catch |err| {
+                // Free strings allocated in this frame since we failed to append it
+                frame.deinit();
+                // If we truly run out of memory, at least we have what we collected so far
+                std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
+                break;
+            };
+        } else {
+            // Skip invalid frames or panic handler infrastructure frames
             frame.deinit();
-            // If we truly run out of memory, at least we have what we collected so far
-            std.debug.print("Warning: Failed to add frame due to memory: {}\n", .{err});
-            break;
-        };
+            continue;
+        }
     }
 
     // Convert to owned slice with robust error handling
