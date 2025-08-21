@@ -23,7 +23,7 @@ pub fn createFullTestEvent(allocator: std.mem.Allocator) !Event {
     fingerprint[0] = try allocator.dupe(u8, "custom");
     fingerprint[1] = try allocator.dupe(u8, "fingerprint");
 
-    const user = try User.init(
+    var user = try User.init(
         allocator,
         "123",
         "testuser",

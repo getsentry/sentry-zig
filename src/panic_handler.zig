@@ -26,7 +26,8 @@ pub fn panicHandler(msg: []const u8, first_trace_addr: ?usize) noreturn {
 }
 
 fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
-    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
+    var sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
+    defer sentry_event.deinit();
 
     _ = sentry.captureEvent(sentry_event) catch |err| {
         std.debug.print("cannot capture event, {}\n", .{err});
@@ -104,7 +105,8 @@ fn sendToSentry(event: Event) void {
 
 // Helper for tests: same as panic_handler but without process exit
 fn panic_handler_test_entry(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) void {
-    const sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
+    var sentry_event = createSentryEvent(allocator, msg, first_trace_addr);
+    defer sentry_event.deinit();
     sendToSentry(sentry_event);
 }
 

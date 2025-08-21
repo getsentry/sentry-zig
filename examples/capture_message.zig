@@ -22,7 +22,7 @@ pub fn main() !void {
         std.log.err("Failed to initialize Sentry client: {any}", .{err});
         return;
     };
-    defer client.deinit();
+    defer sentry.shutdown(allocator, client);
 
     std.log.info("Sentry captureMessage Demo", .{});
 
