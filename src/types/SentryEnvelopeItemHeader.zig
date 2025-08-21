@@ -42,7 +42,7 @@ pub const SentryEnvelopeItemHeader = struct {
     }
 
     pub fn deinit(self: *@This()) void {
-        if (self.allocator) |allocator| if (self.type) |@"type"| allocator.free(@"type");
+        if (self.allocator) |allocator| allocator.free(self.type);
 
         if (self.allocator) |allocator| if (self.content_type) |content_type| allocator.free(content_type);
         if (self.allocator) |allocator| if (self.file_name) |file_name| allocator.free(file_name);
