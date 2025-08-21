@@ -82,6 +82,8 @@ pub const EventError = struct {
 
 /// Exception interface
 pub const Exception = struct {
+    allocator: ?Allocator = null,
+
     type: ?[]const u8 = null,
     value: ?[]const u8 = null,
     module: ?[]const u8 = null,
@@ -93,13 +95,51 @@ pub const Exception = struct {
         if (self.type) |exception_type| allocator.free(exception_type);
         if (self.value) |value| allocator.free(value);
         if (self.module) |module| allocator.free(module);
-        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
         if (self.mechanism) |*mechanism| mechanism.deinit(allocator);
+    }
+
+    pub fn jsonStringify(self: Exception, jw: anytype) !void {
+        try jw.beginObject();
+
+        if (self.type) |@"type"| {
+            try jw.objectField("type");
+            try jw.write(@"type");
+        }
+
+        if (self.value) |value| {
+            try jw.objectField("value");
+            try jw.write(value);
+        }
+
+        if (self.module) |module| {
+            try jw.objectField("module");
+            try jw.write(module);
+        }
+
+        if (self.thread_id) |thread_id| {
+            try jw.objectField("thread_id");
+            try jw.write(thread_id);
+        }
+
+        if (self.stacktrace) |stacktrace| {
+            try jw.objectField("stacktrace");
+            try jw.write(stacktrace);
+        }
+
+        if (self.mechanism) |mechanism| {
+            try jw.objectField("mechanism");
+            try jw.write(mechanism);
+        }
+
+        try jw.endObject();
     }
 };
 
 /// Stack trace interface
 pub const StackTrace = struct {
+    allocator: ?Allocator = null,
+
     frames: []Frame,
     registers: ?std.StringHashMap([]const u8) = null,
 
@@ -118,17 +158,17 @@ pub const StackTrace = struct {
         try jw.endObject();
     }
 
-    pub fn deinit(self: *StackTrace, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *StackTrace) void {
         for (self.frames) |*frame| {
-            frame.deinit(allocator);
+            frame.deinit();
         }
-        allocator.free(self.frames);
+        if (self.allocator) |allocator| allocator.free(self.frames);
 
         if (self.registers) |*registers| {
             var iterator = registers.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             registers.deinit();
         }
@@ -137,6 +177,8 @@ pub const StackTrace = struct {
 
 /// Stack frame
 pub const Frame = struct {
+    allocator: ?Allocator = null,
+
     filename: ?[]const u8 = null,
     function: ?[]const u8 = null,
     module: ?[]const u8 = null,
@@ -234,42 +276,42 @@ pub const Frame = struct {
         try jw.endObject();
     }
 
-    pub fn deinit(self: *Frame, allocator: std.mem.Allocator) void {
-        if (self.filename) |filename| allocator.free(filename);
-        if (self.function) |function| allocator.free(function);
-        if (self.module) |module| allocator.free(module);
-        if (self.abs_path) |abs_path| allocator.free(abs_path);
-        if (self.context_line) |context_line| allocator.free(context_line);
+    pub fn deinit(self: *Frame) void {
+        if (self.allocator) |allocator| if (self.filename) |filename| allocator.free(filename);
+        if (self.allocator) |allocator| if (self.function) |function| allocator.free(function);
+        if (self.allocator) |allocator| if (self.module) |module| allocator.free(module);
+        if (self.allocator) |allocator| if (self.abs_path) |abs_path| allocator.free(abs_path);
+        if (self.allocator) |allocator| if (self.context_line) |context_line| allocator.free(context_line);
 
         if (self.pre_context) |pre_context| {
             for (pre_context) |line| {
-                allocator.free(line);
+                if (self.allocator) |allocator| allocator.free(line);
             }
-            allocator.free(pre_context);
+            if (self.allocator) |allocator| allocator.free(pre_context);
         }
 
         if (self.post_context) |post_context| {
             for (post_context) |line| {
-                allocator.free(line);
+                if (self.allocator) |allocator| allocator.free(line);
             }
-            allocator.free(post_context);
+            if (self.allocator) |allocator| allocator.free(post_context);
         }
 
         if (self.vars) |*vars| {
             var iterator = vars.iterator();
             while (iterator.next()) |entry| {
-                allocator.free(entry.key_ptr.*);
-                allocator.free(entry.value_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.key_ptr.*);
+                if (self.allocator) |allocator| allocator.free(entry.value_ptr.*);
             }
             vars.deinit();
         }
 
-        if (self.package) |package| allocator.free(package);
-        if (self.platform) |platform| allocator.free(platform);
-        if (self.image_addr) |image_addr| allocator.free(image_addr);
-        if (self.symbol) |symbol| allocator.free(symbol);
-        if (self.symbol_addr) |symbol_addr| allocator.free(symbol_addr);
-        if (self.instruction_addr) |instruction_addr| allocator.free(instruction_addr);
+        if (self.allocator) |allocator| if (self.package) |package| allocator.free(package);
+        if (self.allocator) |allocator| if (self.platform) |platform| allocator.free(platform);
+        if (self.allocator) |allocator| if (self.image_addr) |image_addr| allocator.free(image_addr);
+        if (self.allocator) |allocator| if (self.symbol) |symbol| allocator.free(symbol);
+        if (self.allocator) |allocator| if (self.symbol_addr) |symbol_addr| allocator.free(symbol_addr);
+        if (self.allocator) |allocator| if (self.instruction_addr) |instruction_addr| allocator.free(instruction_addr);
     }
 };
 
@@ -453,7 +495,7 @@ pub const Thread = struct {
 
     pub fn deinit(self: *Thread, allocator: std.mem.Allocator) void {
         if (self.name) |name| allocator.free(name);
-        if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
 
         if (self.held_locks) |*held_locks| {
             var iterator = held_locks.iterator();
@@ -893,7 +935,7 @@ pub const Event = struct {
         // Free core interfaces
         if (self.allocator) |allocator| if (self.exception) |*exception| exception.deinit(allocator);
         if (self.allocator) |allocator| if (self.message) |*message| message.deinit(allocator);
-        if (self.allocator) |allocator| if (self.stacktrace) |*stacktrace| stacktrace.deinit(allocator);
+        if (self.stacktrace) |*stacktrace| stacktrace.deinit();
         if (self.allocator) |allocator| if (self.template) |*template| template.deinit(allocator);
 
         // Free scope interfaces
