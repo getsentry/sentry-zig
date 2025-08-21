@@ -34,24 +34,25 @@ pub const SentryClient = struct {
     pub fn init(allocator: Allocator, dsn: ?[]const u8, options: SentryOptions) !SentryClient {
         var opts = options;
 
-        // Ensure options have allocator set for proper cleanup
-        opts.allocator = allocator;
-
-        // Parse DSN if provided
-        if (dsn) |dsn_str| {
-            opts.dsn = try Dsn.parse(allocator, dsn_str);
+        // Take ownership of all data
+        if (opts.dsn) |existing_dsn| {
+            opts.dsn = try existing_dsn.clone(allocator);
         }
 
-        // Clone environment and release strings if they exist but weren't allocated
         if (opts.environment) |env| {
-            if (options.allocator == null) {
-                opts.environment = try allocator.dupe(u8, env);
-            }
+            opts.environment = try allocator.dupe(u8, env);
         }
         if (opts.release) |rel| {
-            if (options.allocator == null) {
-                opts.release = try allocator.dupe(u8, rel);
+            opts.release = try allocator.dupe(u8, rel);
+        }
+
+        opts.allocator = allocator;
+
+        if (dsn) |dsn_str| {
+            if (opts.dsn) |*old_dsn| {
+                old_dsn.deinit();
             }
+            opts.dsn = try Dsn.parse(allocator, dsn_str);
         }
 
         const client = SentryClient{
