@@ -43,7 +43,7 @@ pub const SentryClient = struct {
             .options = opts,
             .active = opts.dsn != null,
             .allocator = allocator,
-            .transport = Transport.init(allocator, opts),
+            .transport = Transport.init(allocator, &opts),
         };
 
         if (opts.debug) {
@@ -176,7 +176,7 @@ pub const SentryClient = struct {
         }
         self.close(null);
         self.transport.deinit();
-        self.options.deinit(self.allocator);
+        self.options.deinit();
     }
 };
 

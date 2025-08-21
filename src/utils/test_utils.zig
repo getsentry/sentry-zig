@@ -23,13 +23,15 @@ pub fn createFullTestEvent(allocator: std.mem.Allocator) !Event {
     fingerprint[0] = try allocator.dupe(u8, "custom");
     fingerprint[1] = try allocator.dupe(u8, "fingerprint");
 
-    const user = User{
-        .id = try allocator.dupe(u8, "123"),
-        .username = try allocator.dupe(u8, "testuser"),
-        .email = try allocator.dupe(u8, "test@example.com"),
-        .name = try allocator.dupe(u8, "Test User"),
-        .ip_address = try allocator.dupe(u8, "192.168.1.1"),
-    };
+    const user = try User.init(
+        allocator,
+        "123",
+        "testuser",
+        "test@example.com",
+        "Test User",
+        "192.168.1.1",
+    );
+    defer user.deinit();
 
     var breadcrumb_data = std.StringHashMap([]const u8).init(allocator);
     try breadcrumb_data.put(try allocator.dupe(u8, "url"), try allocator.dupe(u8, "/api/test"));
@@ -57,31 +59,32 @@ pub fn createFullTestEvent(allocator: std.mem.Allocator) !Event {
         .formatted = try allocator.dupe(u8, "Test error message"),
     };
 
-    return Event{
-        .event_id = EventId.new(),
-        .timestamp = @as(f64, @floatFromInt(std.time.timestamp())),
-        .platform = "native", // Use default literal to avoid memory allocation
-        .level = Level.@"error",
-        .logger = try allocator.dupe(u8, "test-logger"),
-        .transaction = try allocator.dupe(u8, "test-transaction"),
-        .server_name = try allocator.dupe(u8, "test-server"),
-        .release = try allocator.dupe(u8, "1.0.0"),
-        .dist = try allocator.dupe(u8, "1"),
-        .tags = tags,
-        .environment = try allocator.dupe(u8, "test"),
-        .modules = modules,
-        .fingerprint = fingerprint,
-        .user = user,
-        .breadcrumbs = breadcrumbs,
-        .message = message,
-        .errors = null,
-        .exception = null,
-        .stacktrace = null,
-        .template = null,
-        .request = null,
-        .contexts = null,
-        .threads = null,
-        .debug_meta = null,
-        .sdk = null,
-    };
+    return Event.init(
+        allocator,
+        EventId.new(),
+        @as(f64, @floatFromInt(std.time.timestamp())),
+        "native", // Use default literal to avoid memory allocation
+        Level.@"error",
+        "test-logger",
+        "test-transaction",
+        "test-server",
+        "1.0.0",
+        "1",
+        tags,
+        "test",
+        modules,
+        fingerprint,
+        null,
+        null,
+        message,
+        null,
+        null,
+        breadcrumbs,
+        user,
+        null,
+        null,
+        null,
+        null,
+        null,
+    );
 }
