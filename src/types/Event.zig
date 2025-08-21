@@ -672,6 +672,7 @@ pub const Event = struct {
     event_id: EventId,
     timestamp: f64,
     platform: []const u8 = "native",
+    allocated_platform: bool = false,
 
     // Optional attributes
     level: ?Level = null,
@@ -856,6 +857,7 @@ pub const Event = struct {
 
         return .{
             .allocator = allocator,
+            .allocated_platform = true,
 
             .event_id = event_id,
             .timestamp = timestamp,
@@ -886,7 +888,9 @@ pub const Event = struct {
     }
 
     pub fn deinit(self: *Event) void {
-        if (self.allocator) |allocator| allocator.free(self.platform);
+        if (self.allocated_platform) {
+            if (self.allocator) |allocator| allocator.free(self.platform);
+        }
 
         // Free optional string attributes
         if (self.allocator) |allocator| if (self.logger) |logger| allocator.free(logger);
