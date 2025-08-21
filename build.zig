@@ -49,24 +49,25 @@ pub fn build(b: *std.Build) void {
     });
 
     lib.root_module.addImport("types", types);
-    types.addImport("utils", lib_mod);
+    // Don't import lib_mod as "utils" to avoid module conflict
+    // types.addImport("utils", lib_mod);
 
     // This declares intent for the library to be installed into the standard
     // location when the user invokes the "install" step (the default step when
     // running `zig build`).
     b.installArtifact(lib);
 
-    // Export the main module for external consumption
-    // This allows other projects to import it via b.dependency().module()
-    const sentry_module = b.addModule("sentry_zig", .{
+    // Export a module for external consumption
+    // This allows other projects to import it via b.dependency().module("sentry_zig")
+    const exported_module = b.addModule("sentry_zig", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    // Add the same dependencies that the library has
-    sentry_module.addOptions("sentry_build", sentry_build_opts);
-    sentry_module.addImport("types", types);
+    // Add the same imports that the library module has
+    exported_module.addOptions("sentry_build", sentry_build_opts);
+    exported_module.addImport("types", types);
 
     // Examples
     addExample(b, target, optimize, lib, "panic_handler", "Panic handler example");
@@ -80,6 +81,7 @@ pub fn build(b: *std.Build) void {
     });
     lib_unit_tests.root_module.addImport("types", types);
     lib_unit_tests.root_module.addOptions("sentry_build", sentry_build_opts);
+    // types.addImport("utils", lib_unit_tests.root_module); // Avoid conflict
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
