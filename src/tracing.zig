@@ -158,13 +158,9 @@ pub fn startTransactionFromHeader(allocator: Allocator, name: []const u8, op: []
 
     try ctx.updateFromHeader(sentry_trace);
 
-    // TODO: Parse baggage header for parent sample rate
-    if (!shouldSample(client, &ctx)) {
-        return null;
-    }
-
+    const should_sample = if (ctx.sampled) |sampled| sampled else shouldSample(client, &ctx);
     const transaction = try Transaction.init(allocator, ctx);
-    transaction.sampled = if (ctx.sampled) |sampled| (if (sampled) .True else .False) else .True;
+    transaction.sampled = if (should_sample) .True else .False;
 
     try initTracingTLS(allocator);
 
@@ -366,6 +362,66 @@ test "transaction creation with sampling" {
 
     try std.testing.expectEqualStrings("test_transaction", transaction.?.name);
     try std.testing.expectEqualStrings("http.request", transaction.?.op);
+
+    deinitTracingTLS();
+}
+
+test "startTransactionFromHeader with valid header" {
+    const allocator = std.testing.allocator;
+
+    try scope.initScopeManager(allocator);
+    defer scope.resetAllScopeState(allocator);
+
+    const options = types.SentryOptions{
+        .sample_rate = 1.0,
+    };
+    var client = try SentryClient.init(allocator, null, options);
+    defer client.transport.deinit();
+    scope.setClient(&client);
+
+    // Valid sentry-trace header: trace_id-span_id-sampled
+    const sentry_trace = "12345678901234567890123456789012-1234567890123456-1";
+    const transaction = try startTransactionFromHeader(allocator, "test_transaction", "http.request", sentry_trace);
+    try std.testing.expect(transaction != null);
+    defer {
+        finishTransaction();
+        transaction.?.deinit();
+    }
+
+    try std.testing.expectEqualStrings("test_transaction", transaction.?.name);
+    try std.testing.expectEqualStrings("http.request", transaction.?.op);
+    try std.testing.expect(transaction.?.sampled == .True);
+
+    // Check trace context is properly set
+    try std.testing.expectEqualStrings("12345678901234567890123456789012", &transaction.?.trace_id.toHexFixed());
+    try std.testing.expectEqualStrings("1234567890123456", &transaction.?.parent_span_id.?.toHexFixed());
+
+    deinitTracingTLS();
+}
+
+test "startTransactionFromHeader with unsampled header" {
+    const allocator = std.testing.allocator;
+
+    try scope.initScopeManager(allocator);
+    defer scope.resetAllScopeState(allocator);
+
+    const options = types.SentryOptions{
+        .sample_rate = 1.0, // High sample rate but header says not sampled
+    };
+    var client = try SentryClient.init(allocator, null, options);
+    defer client.transport.deinit();
+    scope.setClient(&client);
+
+    // Valid sentry-trace header with sampled=0
+    const sentry_trace = "12345678901234567890123456789012-1234567890123456-0";
+    const transaction = try startTransactionFromHeader(allocator, "test_transaction", "http.request", sentry_trace);
+    try std.testing.expect(transaction != null);
+    defer {
+        finishTransaction();
+        transaction.?.deinit();
+    }
+
+    try std.testing.expect(transaction.?.sampled == .False);
 
     deinitTracingTLS();
 }

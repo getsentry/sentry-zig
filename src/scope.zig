@@ -376,15 +376,6 @@ pub const Scope = struct {
         self.propagation_context.updateFromTrace(trace_id, span_id, parent_span_id);
     }
 
-    /// Set trace context from hex strings
-    pub fn setTraceFromHex(self: *Scope, trace_id_hex: []const u8, span_id_hex: []const u8, parent_span_id_hex: ?[]const u8) !void {
-        const trace_id = try TraceId.fromHex(trace_id_hex);
-        const span_id = try SpanId.fromHex(span_id_hex);
-        const parent_span_id = if (parent_span_id_hex) |hex| try SpanId.fromHex(hex) else null;
-
-        self.setTrace(trace_id, span_id, parent_span_id);
-    }
-
     /// Get the current propagation context
     pub fn getPropagationContext(self: *const Scope) PropagationContext {
         return self.propagation_context.clone();
@@ -675,12 +666,6 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
 pub fn setTrace(trace_id: TraceId, span_id: SpanId, parent_span_id: ?SpanId) !void {
     const scope = try getIsolationScope();
     scope.setTrace(trace_id, span_id, parent_span_id);
-}
-
-/// Set trace context from hex strings
-pub fn setTraceFromHex(trace_id_hex: []const u8, span_id_hex: []const u8, parent_span_id_hex: ?[]const u8) !void {
-    const scope = try getIsolationScope();
-    try scope.setTraceFromHex(trace_id_hex, span_id_hex, parent_span_id_hex);
 }
 
 /// Get the current propagation context
