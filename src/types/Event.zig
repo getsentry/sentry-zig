@@ -5,6 +5,8 @@ const User = @import("User.zig").User;
 const Level = @import("Level.zig").Level;
 const Request = @import("Request.zig").Request;
 const Contexts = @import("Contexts.zig").Contexts;
+const TraceId = @import("TraceId.zig").TraceId;
+const SpanId = @import("SpanId.zig").SpanId;
 const json_utils = @import("../utils/json_utils.zig");
 const utils = @import("utils");
 
@@ -676,6 +678,7 @@ pub const Event = struct {
     allocated_platform: bool = false,
 
     // Optional attributes
+    type: ?[]const u8 = null,
     level: ?Level = null,
     logger: ?[]const u8 = null,
     transaction: ?[]const u8 = null,
@@ -687,6 +690,13 @@ pub const Event = struct {
     modules: ?std.StringHashMap([]const u8) = null,
     fingerprint: ?[][]const u8 = null,
     errors: ?[]EventError = null,
+
+    // Tracing attributes
+    trace_id: ?TraceId = null,
+    span_id: ?SpanId = null,
+    parent_span_id: ?SpanId = null,
+    start_time: ?f64 = null,
+    spans: ?[]const @import("Span.zig").Span = null,
 
     // Core interfaces
     exception: ?Exception = null,
@@ -716,6 +726,12 @@ pub const Event = struct {
         try jw.write(self.timestamp);
         try jw.objectField("platform");
         try jw.write(self.platform);
+
+        // Optional type field
+        if (self.type) |event_type| {
+            try jw.objectField("type");
+            try jw.write(event_type);
+        }
 
         // Let std.json.stringify handle most optional fields
         if (self.level) |level| {
@@ -813,6 +829,28 @@ pub const Event = struct {
         if (self.stacktrace) |stacktrace| {
             try jw.objectField("stacktrace");
             try jw.write(stacktrace);
+        }
+
+        // Tracing fields
+        if (self.trace_id) |trace_id| {
+            try jw.objectField("trace_id");
+            try jw.write(trace_id);
+        }
+        if (self.span_id) |span_id| {
+            try jw.objectField("span_id");
+            try jw.write(span_id);
+        }
+        if (self.parent_span_id) |parent_span_id| {
+            try jw.objectField("parent_span_id");
+            try jw.write(parent_span_id);
+        }
+        if (self.start_time) |start_time| {
+            try jw.objectField("start_timestamp");
+            try jw.write(start_time);
+        }
+        if (self.spans) |spans| {
+            try jw.objectField("spans");
+            try jw.write(spans);
         }
 
         try jw.endObject();
@@ -949,6 +987,19 @@ pub const Event = struct {
         if (self.allocator) |allocator| if (self.request) |*request| request.deinit(allocator);
         if (self.allocator) |allocator| if (self.contexts) |*contexts| @import("Contexts.zig").deinitContexts(contexts, allocator);
         if (self.allocator) |allocator| if (self.threads) |*threads| threads.deinit(allocator);
+
+        // Free spans array and all span data (Event owns all span data)
+        if (self.spans) |spans| {
+            if (self.allocator) |allocator| {
+                // Clean up each span's owned data
+                for (spans) |span| {
+                    // Cast to mutable for cleanup since Event owns the data
+                    var mutable_span = span;
+                    mutable_span.deinit();
+                }
+                allocator.free(spans);
+            }
+        }
 
         // Free other interfaces
         if (self.allocator) |allocator| if (self.debug_meta) |*debug_meta| debug_meta.deinit(allocator);

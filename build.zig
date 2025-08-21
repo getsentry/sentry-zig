@@ -60,6 +60,7 @@ pub fn build(b: *std.Build) void {
     addExample(b, target, optimize, lib, "panic_handler", "Panic handler example");
     addExample(b, target, optimize, lib, "capture_message", "Run the captureMessage demo");
     addExample(b, target, optimize, lib, "capture_error", "Run the captureError demo");
+    addExample(b, target, optimize, lib, "tracing", "Distributed tracing and performance monitoring demo");
 
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.

@@ -9,6 +9,7 @@ const TransportResult = types.TransportResult;
 const SentryEnvelopeItem = types.SentryEnvelopeItem;
 const SentryEnvelopeHeader = types.SentryEnvelopeHeader;
 const SentryEnvelopeItemHeader = types.SentryEnvelopeItemHeader;
+const SentryItemType = types.SentryItemType;
 const EventId = types.EventId;
 const Event = types.Event;
 const User = types.User;
@@ -17,6 +18,8 @@ const Breadcrumbs = types.Breadcrumbs;
 const BreadcrumbType = types.BreadcrumbType;
 const Level = types.Level;
 const Message = types.Message;
+
+const Span = types.Span;
 const test_utils = @import("utils/test_utils.zig");
 
 pub const HttpTransport = struct {
@@ -41,13 +44,16 @@ pub const HttpTransport = struct {
     }
 
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
-        const payload = try self.envelopeToPayload(envelope);
-        defer self.allocator.free(payload);
-
-        // Check if DSN is configured
+        // Early return if DSN is not configured - don't even create payload
         const dsn = self.options.dsn orelse {
+            if (self.options.debug) {
+                std.log.debug("Transport: No DSN configured, skipping send", .{});
+            }
             return TransportResult{ .response_code = 0 };
         };
+
+        const payload = try self.envelopeToPayload(envelope);
+        defer self.allocator.free(payload);
 
         // Construct the Sentry envelope endpoint URL
         const netloc = dsn.getNetloc(self.allocator) catch {
@@ -87,6 +93,7 @@ pub const HttpTransport = struct {
             .{ .name = "Content-Type", .value = "application/x-sentry-envelope" },
             .{ .name = "Content-Length", .value = content_length },
             .{ .name = "X-Sentry-Auth", .value = auth_header },
+            .{ .name = "User-Agent", .value = "sentry-zig/0.1.0" },
         };
 
         var response_body = std.ArrayList(u8).init(self.allocator);
@@ -100,11 +107,14 @@ pub const HttpTransport = struct {
             .extra_headers = &headers,
             .payload = payload,
             .response_storage = .{ .dynamic = &response_body },
-        }) catch {
+        }) catch |err| {
+            std.log.err("HTTP request failed: {}", .{err});
             return TransportResult{ .response_code = 0 };
         };
+
         std.log.debug("sending payload {s}", .{payload});
-        std.log.debug("http response {}", .{@as(i64, @intCast(@intFromEnum(result.status)))});
+        std.log.debug("Response status: {} ({})", .{ @intFromEnum(result.status), result.status });
+        std.log.debug("Response body: {s}", .{response_body.items});
 
         return TransportResult{ .response_code = @intCast(@intFromEnum(result.status)) };
     }
@@ -119,7 +129,7 @@ pub const HttpTransport = struct {
         for (envelope.items, 0..) |item, i| {
             try std.json.stringify(item.header, std.json.StringifyOptions{}, list.writer());
             try list.append('\n');
-            // Add the actual item data
+
             try list.appendSlice(item.data);
             // Only add newline if not the last item
             if (i < envelope.items.len - 1) {
@@ -138,10 +148,38 @@ pub const HttpTransport = struct {
         try std.json.stringify(event, .{}, list.writer());
 
         const data = try list.toOwnedSlice();
+
+        // Use the correct item type based on the event type
+        const item_type: SentryItemType = if (event.type != null and std.mem.eql(u8, event.type.?, "transaction"))
+            .transaction
+        else
+            .event;
+
+        if (self.options.debug) {
+            std.log.debug("Creating envelope item with type: {s}", .{item_type.toString()});
+        }
+
         return SentryEnvelopeItem{
             .header = .{
-                .type = .event,
-                .length = @intCast(data.len), // Use actual data length, not buffer length
+                .type = item_type,
+                .length = @intCast(data.len),
+            },
+            .data = data,
+        };
+    }
+
+    pub fn envelopeFromTransaction(self: *HttpTransport, transaction: *const Span) !SentryEnvelopeItem {
+        var list = std.ArrayList(u8).init(self.allocator);
+        errdefer list.deinit();
+
+        // Serialize transaction as JSON
+        try std.json.stringify(transaction.*, .{}, list.writer());
+
+        const data = try list.toOwnedSlice();
+        return SentryEnvelopeItem{
+            .header = .{
+                .type = .transaction,
+                .length = @intCast(data.len),
             },
             .data = data,
         };

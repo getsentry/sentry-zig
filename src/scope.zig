@@ -9,6 +9,10 @@ const Level = types.Level;
 const Event = types.Event;
 const EventId = @import("types").EventId;
 const Contexts = types.Contexts;
+const TraceId = types.TraceId;
+const SpanId = types.SpanId;
+const PropagationContext = types.PropagationContext;
+const Span = types.Span;
 const ArrayList = std.ArrayList;
 const HashMap = std.HashMap;
 const Allocator = std.mem.Allocator;
@@ -34,6 +38,10 @@ pub const Scope = struct {
     contexts: std.StringHashMap(std.StringHashMap([]const u8)),
     client: ?*SentryClient,
 
+    // Tracing context
+    propagation_context: PropagationContext,
+    span: ?*Span = null,
+
     const MAX_BREADCRUMBS = 100;
 
     pub fn init(allocator: Allocator) Scope {
@@ -46,6 +54,8 @@ pub const Scope = struct {
             .breadcrumbs = ArrayList(Breadcrumb).init(allocator),
             .contexts = std.StringHashMap(std.StringHashMap([]const u8)).init(allocator),
             .client = null,
+            .propagation_context = PropagationContext.generate(),
+            .span = null,
         };
     }
 
@@ -90,7 +100,6 @@ pub const Scope = struct {
     pub fn fork(self: *const Scope) !Scope {
         var new_scope = Scope.init(self.allocator);
 
-        // Copy level
         new_scope.level = self.level;
 
         var tag_iterator = self.tags.iterator();
@@ -135,7 +144,6 @@ pub const Scope = struct {
             try new_scope.breadcrumbs.append(new_crumb);
         }
 
-        // Copy contexts
         var context_iterator = self.contexts.iterator();
         while (context_iterator.next()) |entry| {
             const context_key = try self.allocator.dupe(u8, entry.key_ptr.*);
@@ -150,6 +158,8 @@ pub const Scope = struct {
 
             try new_scope.contexts.put(context_key, new_context);
         }
+
+        new_scope.propagation_context = self.propagation_context.clone();
 
         return new_scope;
     }
@@ -213,7 +223,6 @@ pub const Scope = struct {
             oldest.deinit(self.allocator);
         }
 
-        // Clone breadcrumb strings to ensure ownership
         var cloned_breadcrumb = Breadcrumb{
             .message = try self.allocator.dupe(u8, breadcrumb.message),
             .type = breadcrumb.type,
@@ -223,7 +232,6 @@ pub const Scope = struct {
             .data = null,
         };
 
-        // Clone data HashMap if present
         if (breadcrumb.data) |data| {
             cloned_breadcrumb.data = std.StringHashMap([]const u8).init(self.allocator);
             var data_iterator = data.iterator();
@@ -261,7 +269,6 @@ pub const Scope = struct {
             old_value.deinit();
         }
 
-        // Clone all strings in the context data
         var cloned_context = std.StringHashMap([]const u8).init(self.allocator);
         var context_iterator = context_data.iterator();
         while (context_iterator.next()) |entry| {
@@ -273,13 +280,14 @@ pub const Scope = struct {
         try self.contexts.put(owned_key, cloned_context);
     }
 
-    fn applyToEvent(self: *const Scope, event: *Event) !void {
+    pub fn applyToEvent(self: *const Scope, event: *Event) !void {
         self.applyLevelToEvent(event);
         try self.applyTagsToEvent(event);
         try self.applyUserToEvent(event);
         try self.applyFingerprintToEvent(event);
         try self.applyBreadcrumbsToEvent(event);
         try self.applyContextsToEvent(event);
+        self.applyTracingToEvent(event);
     }
 
     fn applyLevelToEvent(self: *const Scope, event: *Event) void {
@@ -328,18 +336,15 @@ pub const Scope = struct {
 
         var all_breadcrumbs = try self.allocator.alloc(Breadcrumb, total_count);
 
-        // Copy existing breadcrumbs if any
         if (event.breadcrumbs) |existing| {
             for (existing.values, 0..) |crumb, i| {
                 all_breadcrumbs[i] = crumb;
             }
-            // Free the old array but not the breadcrumbs themselves
+
             self.allocator.free(existing.values);
         }
 
-        // Add scope breadcrumbs
         for (self.breadcrumbs.items, existing_count..) |crumb, i| {
-            // Clone the breadcrumb
             var cloned_crumb = Breadcrumb{
                 .message = try self.allocator.dupe(u8, crumb.message),
                 .type = crumb.type,
@@ -393,6 +398,50 @@ pub const Scope = struct {
         }
     }
 
+    fn applyTracingToEvent(self: *const Scope, event: *Event) void {
+        // Don't apply trace context to transactions - they manage their own
+        if (event.type != null and std.mem.eql(u8, event.type.?, "transaction")) {
+            return;
+        }
+
+        // Priority: active span > propagation_context
+        if (self.span) |active_span| {
+            // Performance mode: inherit from active span
+            if (event.trace_id == null) {
+                event.trace_id = active_span.trace_id;
+            }
+            if (event.span_id == null) {
+                // Regular events should generate their own span_id
+                event.span_id = @import("types").SpanId.generate();
+            }
+            if (event.parent_span_id == null) {
+                // The parent of this event is the active span
+                event.parent_span_id = active_span.span_id;
+            }
+        } else {
+            // TwP mode: inherit from propagation_context
+            if (event.trace_id == null) {
+                event.trace_id = self.propagation_context.trace_id;
+            }
+            if (event.span_id == null) {
+                event.span_id = self.propagation_context.span_id;
+            }
+            if (event.parent_span_id == null) {
+                event.parent_span_id = self.propagation_context.parent_span_id;
+            }
+        }
+    }
+
+    /// Set trace context (equivalent to sentry_set_trace in Native SDK)
+    pub fn setTrace(self: *Scope, trace_id: TraceId, span_id: SpanId, parent_span_id: ?SpanId) void {
+        self.propagation_context.updateFromTrace(trace_id, span_id, parent_span_id);
+    }
+
+    /// Get the current propagation context
+    pub fn getPropagationContext(self: *const Scope) PropagationContext {
+        return self.propagation_context.clone();
+    }
+
     /// Merge another scope into this one (other scope takes precedence)
     pub fn merge(self: *Scope, other: *const Scope) !void {
         // Merge level (other scope takes precedence)
@@ -433,10 +482,35 @@ pub const Scope = struct {
 
             try self.addBreadcrumb(cloned_crumb);
         }
+
+        // Merge propagation context (other scope takes precedence)
+        self.propagation_context = other.propagation_context.clone();
     }
 
     pub fn bindClient(self: *Scope, client: *SentryClient) void {
         self.client = client;
+    }
+
+    /// Set the current span on this scope
+    pub fn setSpan(self: *Scope, span: ?*Span) void {
+        self.span = span;
+    }
+
+    /// Get the current span from this scope
+    pub fn getSpan(self: *const Scope) ?*Span {
+        return self.span;
+    }
+
+    /// Generate sentry-trace header from current span
+    pub fn traceHeaders(self: *const Scope, allocator: std.mem.Allocator) !?[]u8 {
+        if (self.span) |span| {
+            return try span.toSentryTrace(allocator);
+        }
+
+        // Fall back to propagation context if no active span
+        const trace_hex = self.propagation_context.trace_id.toHexFixed();
+        const span_hex = self.propagation_context.span_id.toHexFixed();
+        return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
     }
 };
 
@@ -637,6 +711,28 @@ pub fn addBreadcrumb(breadcrumb: Breadcrumb) !void {
     try scope.addBreadcrumb(breadcrumb);
 }
 
+/// Set trace context (equivalent to sentry_set_trace in Native SDK)
+pub fn setTrace(trace_id: TraceId, span_id: SpanId, parent_span_id: ?SpanId) !void {
+    const scope = try getIsolationScope();
+    scope.setTrace(trace_id, span_id, parent_span_id);
+}
+
+/// Get the current propagation context
+pub fn getPropagationContext() !PropagationContext {
+    const scope = try getIsolationScope();
+    return scope.getPropagationContext();
+}
+
+// Convenience function to set the client on the global scope
+pub fn setClient(client: *SentryClient) void {
+    if (getGlobalScope() catch null) |scope| {
+        scope.bindClient(client);
+    } else {
+        std.log.err("Failed to get global scope for setting client", .{});
+    }
+}
+
+// Convenience function to get the client
 pub fn getClient() ?*SentryClient {
     const scope_getters = .{ getCurrentScope, getIsolationScope, getGlobalScope };
     inline for (scope_getters) |getter| {
@@ -672,7 +768,8 @@ pub fn captureEvent(event: Event) !?EventId {
     return null;
 }
 
-fn resetAllScopeState(allocator: std.mem.Allocator) void {
+// Used for tests
+pub fn resetAllScopeState(allocator: std.mem.Allocator) void {
     global_scope_mutex.lock();
     defer global_scope_mutex.unlock();
 
@@ -788,7 +885,7 @@ test "Scope - breadcrumb limit enforcement" {
     var i: usize = 0;
     while (i <= Scope.MAX_BREADCRUMBS + 5) : (i += 1) {
         const message = try std.fmt.allocPrint(allocator, "Breadcrumb {}", .{i});
-        defer allocator.free(message); // Free the original string after addBreadcrumb clones it
+        defer allocator.free(message);
 
         const breadcrumb = Breadcrumb{
             .message = message,
@@ -805,7 +902,7 @@ test "Scope - breadcrumb limit enforcement" {
     try testing.expectEqualStrings("Breadcrumb 6", test_scope.breadcrumbs.items[0].message);
 }
 
-test "Scope - complex fork with all data types" {
+test "Scope - fork with all data types" {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();

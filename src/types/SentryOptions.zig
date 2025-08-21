@@ -2,6 +2,16 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Dsn = @import("Dsn.zig").Dsn;
 
+// Forward declare SamplingContext for traces_sampler callback
+pub const SamplingContext = struct {
+    span: ?*const anyopaque = null,
+    parent: ?*const anyopaque = null,
+    trace_context: ?*const anyopaque = null,
+    parent_sampled: ?bool = null,
+    parent_sample_rate: ?f64 = null,
+    name: ?[]const u8 = null,
+};
+
 pub const SentryOptions = struct {
     allocator: ?Allocator = null,
 
@@ -9,8 +19,12 @@ pub const SentryOptions = struct {
     environment: ?[]const u8 = null,
     release: ?[]const u8 = null,
     debug: bool = false,
-    sample_rate: f64 = 1.0,
     send_default_pii: bool = false,
+    sample_rate: ?f64 = 0.0,
+    traces_sampler: ?*const fn (SamplingContext) f64 = null,
+    trace_propagation_targets: ?[][]const u8 = null, // URLs to attach trace headers to
+    strict_trace_continuation: bool = false, // Validate org ID for trace continuation
+    org_id: ?[]const u8 = null, // Organization ID for trace validation
 
     pub fn init(
         allocator: Allocator,
