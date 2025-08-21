@@ -18,7 +18,7 @@ pub fn main() !void {
         .send_default_pii = false,
     };
 
-    var client = sentry.init(allocator, dsn_string, options) catch |err| {
+    const client = sentry.init(allocator, dsn_string, options) catch |err| {
         std.log.err("Failed to initialize Sentry client: {any}", .{err});
         return;
     };

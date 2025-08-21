@@ -60,13 +60,6 @@ pub const SentryClient = struct {
             opts.dsn = try Dsn.parse(allocator, dsn_str);
         }
 
-        const client = SentryClient{
-            .options = opts,
-            .active = opts.dsn != null,
-            .allocator = allocator,
-            .transport = Transport.init(allocator, &opts),
-        };
-
         if (opts.debug) {
             std.log.debug("Initializing Sentry client", .{});
             if (opts.dsn) |parsed_dsn| {
@@ -81,6 +74,13 @@ pub const SentryClient = struct {
             }
             std.log.debug("Sample rate: {d}", .{opts.sample_rate});
         }
+
+        const client = SentryClient{
+            .options = opts,
+            .active = opts.dsn != null,
+            .allocator = allocator,
+            .transport = Transport.init(allocator, &opts),
+        };
 
         return client;
     }
