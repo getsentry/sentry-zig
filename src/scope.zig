@@ -443,6 +443,7 @@ pub const Scope = struct {
 /// Thread-safe wrapper for global scope access
 const GlobalScopeWrapper = struct {
     scope: ?*Scope,
+    allocator: ?Allocator,
     mutex: Mutex,
     is_alive: bool,
 
@@ -451,6 +452,7 @@ const GlobalScopeWrapper = struct {
     pub fn init() Self {
         return .{
             .scope = null,
+            .allocator = null,
             .mutex = Mutex{},
             .is_alive = true,
         };
@@ -469,6 +471,7 @@ const GlobalScopeWrapper = struct {
             const scope = try allocator.create(Scope);
             scope.* = Scope.init(allocator);
             self.scope = scope;
+            self.allocator = allocator;
         }
 
         return self.scope.?;
@@ -487,15 +490,18 @@ const GlobalScopeWrapper = struct {
     }
 
     /// Safely deinitialize the global scope
-    pub fn deinit(self: *Self, allocator: Allocator) void {
+    pub fn deinit(self: *Self) void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
         if (self.scope) |scope| {
             scope.deinit();
-            allocator.destroy(scope);
+            if (self.allocator) |allocator| {
+                allocator.destroy(scope);
+            }
             self.scope = null;
         }
+        self.allocator = null;
         self.is_alive = false;
     }
 
@@ -602,9 +608,9 @@ pub fn initScopeManager(allocator: Allocator) !void {
 
 /// Deinitialize the global scope manager and clean up all resources
 pub fn deinitScopeManager() void {
-    if (g_scope_manager) |*manager| {
+    if (g_scope_manager != null) {
         // Clean up global scope using the wrapper
-        global_scope_wrapper.deinit(manager.allocator);
+        global_scope_wrapper.deinit();
 
         // Note: Thread-local scopes should be cleaned up by their respective threads
         // before calling this function. We can't safely clean them up here.
@@ -724,7 +730,7 @@ pub fn captureEvent(event: Event) !?EventId {
 
 fn resetAllScopeState(allocator: std.mem.Allocator) void {
     // Clean up global scope using the wrapper
-    global_scope_wrapper.deinit(allocator);
+    global_scope_wrapper.deinit();
     // Reset the wrapper to be alive again for next test
     global_scope_wrapper = GlobalScopeWrapper.init();
 
