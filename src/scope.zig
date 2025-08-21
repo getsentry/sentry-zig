@@ -496,8 +496,12 @@ const GlobalScopeWrapper = struct {
 
         if (self.scope) |scope| {
             scope.deinit();
+            // If we have a scope, we must have an allocator (invariant)
             if (self.allocator) |allocator| {
                 allocator.destroy(scope);
+            } else {
+                // This should never happen - log an error in debug builds
+                std.debug.assert(false); // Invariant violation: scope without allocator
             }
             self.scope = null;
         }
@@ -520,8 +524,12 @@ const GlobalScopeWrapper = struct {
         // Clean up existing scope if any
         if (self.scope) |scope| {
             scope.deinit();
+            // If we have a scope, we must have an allocator (invariant)
             if (self.allocator) |allocator| {
                 allocator.destroy(scope);
+            } else {
+                // This should never happen - log an error in debug builds
+                std.debug.assert(false); // Invariant violation: scope without allocator
             }
         }
 
@@ -532,6 +540,9 @@ const GlobalScopeWrapper = struct {
     }
 };
 
+// Thread-safe global scope wrapper instance
+// The wrapper's internal mutex ensures thread-safe access to the global scope.
+// The wrapper itself is never reassigned, only its internal state is modified.
 var global_scope_wrapper = GlobalScopeWrapper.init();
 
 threadlocal var thread_isolation_scope: ?*Scope = null;
@@ -622,6 +633,12 @@ const ScopeManager = struct {
 var g_scope_manager: ?ScopeManager = null;
 
 pub fn initScopeManager(allocator: Allocator) !void {
+    // Reset the global scope wrapper if it was previously deinitialized
+    // This allows the system to be reinitialized after shutdown
+    if (!global_scope_wrapper.isAlive()) {
+        global_scope_wrapper.reset();
+    }
+
     g_scope_manager = ScopeManager.init(allocator);
 }
 
@@ -1055,6 +1072,39 @@ test "Scope - thread safety verification" {
         threads[i].join();
         try testing.expect(results[i]);
     }
+}
+
+test "Scope - reinitialization after deinit" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    // Reset state before test
+    resetAllScopeState(allocator);
+    defer resetAllScopeState(allocator);
+
+    // First initialization
+    try initScopeManager(allocator);
+
+    // Set some data
+    try setTag("test_tag", "test_value");
+    const scope1 = try getGlobalScope();
+
+    // Deinitialize
+    deinitScopeManager();
+
+    // Verify the wrapper is not alive
+    try testing.expect(!global_scope_wrapper.isAlive());
+
+    // Reinitialize - this should reset the wrapper
+    try initScopeManager(allocator);
+
+    // Verify we can use the global scope again
+    const scope2 = try getGlobalScope();
+    try testing.expect(scope2 != scope1); // Should be a new instance
+
+    // Should be able to set data again
+    try setTag("new_tag", "new_value");
 }
 
 test "Scope - withScope workflow and restoration" {
