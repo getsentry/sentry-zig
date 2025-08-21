@@ -38,19 +38,24 @@ pub const SentryClient = struct {
         if (opts.dsn) |existing_dsn| {
             opts.dsn = try existing_dsn.clone(allocator);
         }
+        errdefer if (opts.dsn) |*d| d.deinit();
 
         if (opts.environment) |env| {
             opts.environment = try allocator.dupe(u8, env);
         }
+        errdefer if (opts.environment) |e| allocator.free(e);
+
         if (opts.release) |rel| {
             opts.release = try allocator.dupe(u8, rel);
         }
+        errdefer if (opts.release) |r| allocator.free(r);
 
         opts.allocator = allocator;
 
         if (dsn) |dsn_str| {
             if (opts.dsn) |*old_dsn| {
                 old_dsn.deinit();
+                opts.dsn = null; // Prevent double-free in errdefer
             }
             opts.dsn = try Dsn.parse(allocator, dsn_str);
         }
