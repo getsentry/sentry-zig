@@ -44,13 +44,16 @@ pub const HttpTransport = struct {
     }
 
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
-        const payload = try self.envelopeToPayload(envelope);
-        defer self.allocator.free(payload);
-
-        // Check if DSN is configured
+        // Early return if DSN is not configured - don't even create payload
         const dsn = self.options.dsn orelse {
+            if (self.options.debug) {
+                std.log.debug("Transport: No DSN configured, skipping send", .{});
+            }
             return TransportResult{ .response_code = 0 };
         };
+
+        const payload = try self.envelopeToPayload(envelope);
+        defer self.allocator.free(payload);
 
         // Construct the Sentry envelope endpoint URL
         const netloc = dsn.getNetloc(self.allocator) catch {
