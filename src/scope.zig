@@ -610,6 +610,11 @@ pub fn initScopeManager(allocator: Allocator) !void {
     g_scope_manager = ScopeManager.init(allocator);
 }
 
+pub fn deinitScopeManager(allocator: Allocator) void {
+    resetAllScopeState(allocator);
+    g_scope_manager = null;
+}
+
 pub fn getAllocator() !Allocator {
     if (g_scope_manager) |*manager| {
         return manager.allocator;
