@@ -42,24 +42,12 @@ pub fn captureEvent(event: Event) !?EventId {
 }
 
 pub const startTransaction = tracing.startTransaction;
-
-pub const startTransactionFromHeader = tracing.startTransactionFromHeader;
-
+pub const continueFromHeaders = tracing.continueFromHeaders;
 pub const finishTransaction = tracing.finishTransaction;
-
 pub const startSpan = tracing.startSpan;
-
-pub const finishSpan = tracing.finishSpan;
-
-pub const withTransaction = tracing.withTransaction;
-
-pub const withSpan = tracing.withSpan;
-
+pub const getCurrentSpan = tracing.getCurrentSpan;
+pub const getCurrentTransaction = tracing.getCurrentTransaction;
 pub const getSentryTrace = tracing.getSentryTrace;
-
-pub const getActiveTransaction = tracing.getActiveTransaction;
-
-pub const getActiveSpan = tracing.getActiveSpan;
 
 pub fn captureMessage(message: []const u8, level: Level) !?EventId {
     const event = Event.fromMessage(message, level);

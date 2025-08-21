@@ -503,17 +503,6 @@ pub const Scope = struct {
         const span_hex = self.propagation_context.span_id.toHexFixed();
         return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
     }
-
-    /// Start a new transaction (Hub equivalent method)
-    pub fn startTransaction(self: *Scope, allocator: std.mem.Allocator, transaction_context: ?*const anyopaque, custom_sampling_context: ?*const anyopaque) !?*anyopaque {
-        _ = self;
-        _ = allocator;
-        _ = transaction_context;
-        _ = custom_sampling_context;
-        // TODO: Implement transaction creation logic here
-        // This should integrate with the tracing module functionality
-        return null;
-    }
 };
 
 var global_scope: ?*Scope = null;

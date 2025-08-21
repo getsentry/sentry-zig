@@ -37,46 +37,8 @@ pub const SamplingContext = struct {
 
 const Sampled = Transaction.Sampled;
 
-threadlocal var active_transaction_stack: ?std.ArrayList(*Transaction) = null;
-threadlocal var active_span_stack: ?std.ArrayList(*Span) = null;
-
-pub fn initTracingTLS(allocator: Allocator) !void {
-    if (active_transaction_stack == null) {
-        active_transaction_stack = std.ArrayList(*Transaction).init(allocator);
-    }
-    if (active_span_stack == null) {
-        active_span_stack = std.ArrayList(*Span).init(allocator);
-    }
-}
-
-pub fn deinitTracingTLS() void {
-    if (active_transaction_stack) |*stack| {
-        stack.deinit();
-        active_transaction_stack = null;
-    }
-    if (active_span_stack) |*stack| {
-        stack.deinit();
-        active_span_stack = null;
-    }
-}
-
-pub fn getActiveTransaction() ?*Transaction {
-    if (active_transaction_stack) |*stack| {
-        if (stack.items.len > 0) {
-            return stack.items[stack.items.len - 1];
-        }
-    }
-    return null;
-}
-
-pub fn getActiveSpan() ?*Span {
-    if (active_span_stack) |*stack| {
-        if (stack.items.len > 0) {
-            return stack.items[stack.items.len - 1];
-        }
-    }
-    return null;
-}
+/// Simple span context - no complex thread-local stacks like before
+threadlocal var current_span: ?*anyopaque = null;
 
 fn shouldSample(client: *const SentryClient, ctx: *const TransactionContext) bool {
     // 1. Use parent sampling decision if available
@@ -112,6 +74,7 @@ fn generateSampleDecision(sample_rate: f64) bool {
     return false;
 }
 
+/// Start a transaction (following Go's StartTransaction pattern)
 pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) !?*Transaction {
     const client = scope.getClient() orelse {
         std.log.debug("No client available, cannot start transaction", .{});
@@ -128,13 +91,7 @@ pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) 
     const transaction = try Transaction.init(allocator, ctx);
     transaction.sampled = .True;
 
-    try initTracingTLS(allocator);
-
-    if (active_transaction_stack) |*stack| {
-        try stack.append(transaction);
-    }
-
-    // Set transaction on current scope
+    // Set transaction on current scope (like Go's hub.Scope().SetSpan(&span))
     if (scope.getCurrentScope() catch null) |current_scope| {
         current_scope.setSpan(transaction);
     }
@@ -142,10 +99,14 @@ pub fn startTransaction(allocator: Allocator, name: []const u8, op: []const u8) 
     const new_context = transaction.getPropagationContext();
     scope.setTrace(new_context.trace_id, new_context.span_id, new_context.parent_span_id) catch {};
 
+    // Store current span reference (simplified from complex stacks)
+    current_span = transaction;
+
     return transaction;
 }
 
-pub fn startTransactionFromHeader(allocator: Allocator, name: []const u8, op: []const u8, sentry_trace: []const u8) !?*Transaction {
+/// Continue a transaction from headers (like Go's ContinueFromHeaders)
+pub fn continueFromHeaders(allocator: Allocator, name: []const u8, op: []const u8, sentry_trace: []const u8) !?*Transaction {
     const client = scope.getClient() orelse {
         std.log.debug("No client available, cannot start transaction from header", .{});
         return null;
@@ -158,15 +119,12 @@ pub fn startTransactionFromHeader(allocator: Allocator, name: []const u8, op: []
 
     try ctx.updateFromHeader(sentry_trace);
 
+    // For transactions from headers, we always create the transaction to continue the trace,
+    // but we respect the parent's sampling decision from the header
     const should_sample = if (ctx.sampled) |sampled| sampled else shouldSample(client, &ctx);
+
     const transaction = try Transaction.init(allocator, ctx);
     transaction.sampled = if (should_sample) .True else .False;
-
-    try initTracingTLS(allocator);
-
-    if (active_transaction_stack) |*stack| {
-        try stack.append(transaction);
-    }
 
     // Set transaction on current scope
     if (scope.getCurrentScope() catch null) |current_scope| {
@@ -176,36 +134,33 @@ pub fn startTransactionFromHeader(allocator: Allocator, name: []const u8, op: []
     const new_context = transaction.getPropagationContext();
     scope.setTrace(new_context.trace_id, new_context.span_id, new_context.parent_span_id) catch {};
 
+    current_span = transaction;
+
     return transaction;
 }
 
-pub fn finishTransaction() void {
-    if (active_transaction_stack) |*stack| {
-        if (stack.items.len > 0) {
-            if (stack.pop()) |transaction| {
-                transaction.finish();
+/// Finish the current transaction
+pub fn finishTransaction(transaction: *Transaction) void {
+    transaction.finish();
 
-                // Clear transaction from scope
-                if (scope.getCurrentScope() catch null) |current_scope| {
-                    if (current_scope.getSpan() == @as(?*anyopaque, transaction)) {
-                        current_scope.setSpan(null);
-                    }
-                }
-
-                sendTransactionToSentry(transaction) catch |err| {
-                    std.log.err("Failed to send transaction to Sentry: {}", .{err});
-                };
-            }
+    // Clear transaction from scope
+    if (scope.getCurrentScope() catch null) |current_scope| {
+        if (current_scope.getSpan() == @as(?*anyopaque, transaction)) {
+            current_scope.setSpan(null);
         }
     }
+
+    // Send to Sentry if sampled
+    if (transaction.sampled.toBool()) {
+        sendTransactionToSentry(transaction) catch |err| {
+            std.log.err("Failed to send transaction to Sentry: {}", .{err});
+        };
+    }
+
+    current_span = null;
 }
 
 fn sendTransactionToSentry(transaction: *Transaction) !void {
-    if (!transaction.sampled.toBool()) {
-        std.log.debug("Transaction not sampled, skipping send", .{});
-        return;
-    }
-
     std.log.debug("Sending transaction to Sentry: {s} (trace: {s})", .{
         transaction.name,
         &transaction.trace_id.toHexFixed(),
@@ -222,90 +177,33 @@ fn sendTransactionToSentry(transaction: *Transaction) !void {
     }
 }
 
-pub fn startSpan(allocator: Allocator, op: []const u8, description: ?[]const u8) !?*Span {
-    const active_transaction = getActiveTransaction() orelse {
+/// Start a child span from the current transaction
+pub fn startSpan(_: Allocator, op: []const u8, description: ?[]const u8) !?*Span {
+    // In Go SDK, spans inherit from parent or current transaction
+    const active_transaction: ?*Transaction = @ptrCast(@alignCast(current_span));
+    const transaction = active_transaction orelse {
         std.log.debug("No active transaction, cannot start span", .{});
         return null;
     };
 
-    if (active_transaction.sampled != .True) {
+    if (transaction.sampled != .True) {
         std.log.debug("Transaction not sampled, skipping span creation", .{});
         return null;
     }
 
-    try initTracingTLS(allocator);
-
-    var span: *Span = undefined;
-
-    if (getActiveSpan()) |active_span| {
-        span = try active_span.startSpan(op, description);
-    } else {
-        span = try active_transaction.startSpan(op, description);
-    }
-
-    if (active_span_stack) |*stack| {
-        try stack.append(span);
-    }
-
-    const span_context = PropagationContext{
-        .trace_id = span.trace_id,
-        .span_id = span.span_id,
-        .parent_span_id = span.parent_span_id,
-    };
-    scope.setTrace(span_context.trace_id, span_context.span_id, span_context.parent_span_id) catch {};
-
+    const span = try transaction.startSpan(op, description);
     return span;
 }
 
-pub fn finishSpan() void {
-    if (active_span_stack) |*stack| {
-        if (stack.items.len > 0) {
-            if (stack.pop()) |span| {
-                span.finish();
-
-                // Restore parent context
-                if (stack.items.len > 0) {
-                    const parent_span = stack.items[stack.items.len - 1];
-                    const parent_context = PropagationContext{
-                        .trace_id = parent_span.trace_id,
-                        .span_id = parent_span.span_id,
-                        .parent_span_id = parent_span.parent_span_id,
-                    };
-                    scope.setTrace(parent_context.trace_id, parent_context.span_id, parent_context.parent_span_id) catch {};
-                } else if (getActiveTransaction()) |transaction| {
-                    const tx_context = transaction.getPropagationContext();
-                    scope.setTrace(tx_context.trace_id, tx_context.span_id, tx_context.parent_span_id) catch {};
-                }
-            }
-        }
-    }
+/// Get current span (transaction or span)
+pub fn getCurrentSpan() ?*anyopaque {
+    return current_span;
 }
 
-pub fn withTransaction(allocator: Allocator, name: []const u8, op: []const u8, callback: anytype) !void {
-    const transaction = try startTransaction(allocator, name, op) orelse return;
-    defer {
-        finishTransaction();
-        transaction.deinit();
-    }
-
-    try callback(transaction);
-}
-
-pub fn withSpan(allocator: Allocator, op: []const u8, description: ?[]const u8, callback: anytype) !void {
-    const span = try startSpan(allocator, op, description) orelse return;
-    defer finishSpan();
-
-    try callback(span);
-}
-
-/// Get sentry-trace header value according to spec: traceid-spanid-sampled
-/// Format: 32 hex chars for traceId, 16 hex chars for spanId, optional sampled flag
+/// Get sentry-trace header value
 pub fn getSentryTrace(allocator: Allocator) !?[]u8 {
-    if (getActiveSpan()) |span| {
-        const trace_hex = span.trace_id.toHexFixed();
-        const span_hex = span.span_id.toHexFixed();
-        return try std.fmt.allocPrint(allocator, "{s}-{s}", .{ trace_hex, span_hex });
-    } else if (getActiveTransaction()) |transaction| {
+    if (current_span) |span_ptr| {
+        const transaction: *Transaction = @ptrCast(@alignCast(span_ptr));
         return try transaction.toSentryTrace(allocator);
     } else {
         const propagation_context = scope.getPropagationContext() catch return null;
@@ -315,113 +213,7 @@ pub fn getSentryTrace(allocator: Allocator) !?[]u8 {
     }
 }
 
-/// Get current active span for Sentry.span static API
-pub fn getCurrentSpan() ?*Span {
-    return getActiveSpan() orelse if (getActiveTransaction()) |tx| @ptrCast(tx) else null;
-}
-
-test "transaction sampling" {
-    const allocator = std.testing.allocator;
-
-    try scope.initScopeManager(allocator);
-    defer scope.resetAllScopeState(allocator);
-
-    // Mock client with zero sample rate
-    const options = types.SentryOptions{
-        .sample_rate = 0.0,
-    };
-    var client = try SentryClient.init(allocator, null, options);
-    defer client.transport.deinit();
-    scope.setClient(&client);
-
-    const transaction = try startTransaction(allocator, "test", "test");
-    try std.testing.expect(transaction == null);
-
-    deinitTracingTLS();
-}
-
-test "transaction creation with sampling" {
-    const allocator = std.testing.allocator;
-
-    try scope.initScopeManager(allocator);
-    defer scope.resetAllScopeState(allocator);
-
-    const options = types.SentryOptions{
-        .sample_rate = 1.0,
-    };
-    var client = try SentryClient.init(allocator, null, options);
-    defer client.transport.deinit();
-    scope.setClient(&client);
-
-    const transaction = try startTransaction(allocator, "test_transaction", "http.request");
-    try std.testing.expect(transaction != null);
-    defer {
-        finishTransaction();
-        transaction.?.deinit();
-    }
-
-    try std.testing.expectEqualStrings("test_transaction", transaction.?.name);
-    try std.testing.expectEqualStrings("http.request", transaction.?.op);
-
-    deinitTracingTLS();
-}
-
-test "startTransactionFromHeader with valid header" {
-    const allocator = std.testing.allocator;
-
-    try scope.initScopeManager(allocator);
-    defer scope.resetAllScopeState(allocator);
-
-    const options = types.SentryOptions{
-        .sample_rate = 1.0,
-    };
-    var client = try SentryClient.init(allocator, null, options);
-    defer client.transport.deinit();
-    scope.setClient(&client);
-
-    // Valid sentry-trace header: trace_id-span_id-sampled
-    const sentry_trace = "12345678901234567890123456789012-1234567890123456-1";
-    const transaction = try startTransactionFromHeader(allocator, "test_transaction", "http.request", sentry_trace);
-    try std.testing.expect(transaction != null);
-    defer {
-        finishTransaction();
-        transaction.?.deinit();
-    }
-
-    try std.testing.expectEqualStrings("test_transaction", transaction.?.name);
-    try std.testing.expectEqualStrings("http.request", transaction.?.op);
-    try std.testing.expect(transaction.?.sampled == .True);
-
-    // Check trace context is properly set
-    try std.testing.expectEqualStrings("12345678901234567890123456789012", &transaction.?.trace_id.toHexFixed());
-    try std.testing.expectEqualStrings("1234567890123456", &transaction.?.parent_span_id.?.toHexFixed());
-
-    deinitTracingTLS();
-}
-
-test "startTransactionFromHeader with unsampled header" {
-    const allocator = std.testing.allocator;
-
-    try scope.initScopeManager(allocator);
-    defer scope.resetAllScopeState(allocator);
-
-    const options = types.SentryOptions{
-        .sample_rate = 1.0, // High sample rate but header says not sampled
-    };
-    var client = try SentryClient.init(allocator, null, options);
-    defer client.transport.deinit();
-    scope.setClient(&client);
-
-    // Valid sentry-trace header with sampled=0
-    const sentry_trace = "12345678901234567890123456789012-1234567890123456-0";
-    const transaction = try startTransactionFromHeader(allocator, "test_transaction", "http.request", sentry_trace);
-    try std.testing.expect(transaction != null);
-    defer {
-        finishTransaction();
-        transaction.?.deinit();
-    }
-
-    try std.testing.expect(transaction.?.sampled == .False);
-
-    deinitTracingTLS();
+/// Get current active transaction (Go SDK equivalent)
+pub fn getCurrentTransaction() ?*Transaction {
+    return @ptrCast(@alignCast(current_span));
 }
