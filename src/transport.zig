@@ -49,7 +49,7 @@ pub const HttpTransport = struct {
         const dsn = self.options.dsn orelse {
             return TransportResult{ .response_code = 0 };
         };
-        std.debug.print("dsn: {s}", .{dsn});
+        std.debug.print("dsn: {any}", .{dsn});
 
         // Construct the Sentry envelope endpoint URL
         const netloc = dsn.getNetloc(self.allocator) catch {
@@ -72,7 +72,7 @@ pub const HttpTransport = struct {
         const uri = std.Uri.parse(endpoint_url) catch {
             return TransportResult{ .response_code = 0 };
         };
-        std.debug.print("uri: {s}", .{uri});
+        std.debug.print("uri: {any}", .{uri});
 
         // Construct the auth header
         const auth_header = std.fmt.allocPrint(self.allocator, "Sentry sentry_version=7,sentry_key={s},sentry_client=sentry-zig/0.1.0", .{
@@ -144,12 +144,12 @@ pub const HttpTransport = struct {
         var list = std.ArrayList(u8).init(self.allocator);
         errdefer list.deinit();
 
-        std.debug.print("stringifying event");
+        std.debug.print("stringifying event", .{});
 
         try std.json.stringify(event, .{}, list.writer());
 
         const data = try list.toOwnedSlice();
-        std.debug.print("Creating envelope item");
+        std.debug.print("Creating envelope item", .{});
         return SentryEnvelopeItem{
             .header = .{
                 .type = .event,
