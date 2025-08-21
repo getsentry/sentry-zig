@@ -672,7 +672,7 @@ test "frame detection: categorizeFrame sets in_app correctly" {
         .filename = allocator.dupe(u8, "/home/user/myproject/src/main.zig") catch unreachable,
         .function = allocator.dupe(u8, "main") catch unreachable,
     };
-    defer app_frame.deinit(allocator);
+    defer app_frame.deinit();
 
     categorizeFrame(&app_frame, project_root);
     try std.testing.expect(app_frame.in_app == true);
@@ -683,7 +683,7 @@ test "frame detection: categorizeFrame sets in_app correctly" {
         .filename = allocator.dupe(u8, "/lib/zig/std/debug.zig") catch unreachable,
         .function = allocator.dupe(u8, "std.debug.print") catch unreachable,
     };
-    defer sys_frame.deinit(allocator);
+    defer sys_frame.deinit();
 
     categorizeFrame(&sys_frame, project_root);
     try std.testing.expect(sys_frame.in_app == false);
@@ -717,7 +717,7 @@ test "frame detection: enhanced symbol extraction with categorization" {
     var frame = Frame{
         .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{@returnAddress()}) catch return error.SkipZigTest,
     };
-    defer frame.deinit(allocator);
+    defer frame.deinit();
 
     extractSymbolInfoWithCategorization(allocator, debug_info, @returnAddress(), &frame, project_root);
 
@@ -735,7 +735,7 @@ test "frame detection: enhanced symbol extraction with categorization" {
 test "frame detection: end-to-end categorization in panic handler" {
     const allocator = std.testing.allocator;
     var event = createSentryEvent(allocator, "test message", @returnAddress());
-    defer event.deinit(allocator);
+    defer event.deinit();
 
     try std.testing.expect(event.exception != null);
     const stacktrace = event.exception.?.stacktrace;
@@ -785,7 +785,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
         .in_app = null,
         .instruction_addr = try allocator.dupe(u8, "0x1000"),
     };
-    defer docker_app_frame.deinit(allocator);
+    defer docker_app_frame.deinit();
 
     var docker_example_frame = Frame{
         .filename = try allocator.dupe(u8, "/build/workspace/my-app/examples/demo.zig"),
@@ -796,7 +796,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
         .in_app = null,
         .instruction_addr = try allocator.dupe(u8, "0x2000"),
     };
-    defer docker_example_frame.deinit(allocator);
+    defer docker_example_frame.deinit();
 
     var docker_lib_frame = Frame{
         .filename = try allocator.dupe(u8, "/usr/lib/zig/std/start.zig"),
@@ -807,7 +807,7 @@ test "frame detection: build-root classification only (no fuzzy patterns)" {
         .in_app = null,
         .instruction_addr = try allocator.dupe(u8, "0x3000"),
     };
-    defer docker_lib_frame.deinit(allocator);
+    defer docker_lib_frame.deinit();
 
     // Test with exact project root match
     categorizeFrame(&docker_app_frame, build_time_root);
