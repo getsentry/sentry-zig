@@ -20,50 +20,7 @@ You need:
 
 ### Installation
 
-#### Method 1: Using Git Submodule (Recommended for now)
-
-Since this is an experimental project, the easiest way to integrate it is as a git submodule:
-
-```bash
-# Add as submodule in your project
-git submodule add https://github.com/getsentry/sentry-zig.git deps/sentry-zig
-git submodule update --init --recursive
-```
-
-Then in your `build.zig`, add the sentry-zig dependency:
-
-```zig
-const std = @import("std");
-
-pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-
-    const exe = b.addExecutable(.{
-        .name = "my-app",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    // Add sentry-zig as a dependency
-    const sentry_zig_dep = b.addStaticLibrary(.{
-        .name = "sentry_zig",
-        .root_source_file = b.path("deps/sentry-zig/src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    
-    exe.linkLibrary(sentry_zig_dep);
-    exe.root_module.addImport("sentry_zig", sentry_zig_dep.root_module);
-    
-    b.installArtifact(exe);
-}
-```
-
-#### Method 2: Using Zig Package Manager (Experimental)
-
-If you want to use the package manager, first ensure your project has a `build.zig.zon` file, then:
+Ensure your project has a `build.zig.zon` file, then:
 
 ```bash
 # Add the dependency 
