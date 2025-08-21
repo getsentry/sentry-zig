@@ -28,6 +28,10 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Build-time options for the library and dependents
+    const sentry_build_opts = b.addOptions();
+    sentry_build_opts.addOption([]const u8, "sentry_project_root", b.pathFromRoot("."));
+
     // Now, we will create a static library based on the module we created above.
     // This creates a `std.Build.Step.Compile`, which is the build step responsible
     // for actually invoking the compiler.
@@ -36,6 +40,9 @@ pub fn build(b: *std.Build) void {
         .name = "sentry_zig",
         .root_module = lib_mod,
     });
+
+    // Expose build options module to the library
+    lib.root_module.addOptions("sentry_build", sentry_build_opts);
 
     const types = b.addModule("types", .{
         .root_source_file = b.path("src/Types.zig"),
@@ -58,6 +65,7 @@ pub fn build(b: *std.Build) void {
         .root_module = lib_mod,
     });
     lib_unit_tests.root_module.addImport("types", types);
+    lib_unit_tests.root_module.addOptions("sentry_build", sentry_build_opts);
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 

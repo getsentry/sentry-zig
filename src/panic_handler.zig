@@ -3,6 +3,7 @@ const types = @import("types");
 const sentry = @import("root.zig");
 const scope = @import("scope.zig");
 const Allocator = std.mem.Allocator;
+const sentry_build = @import("sentry_build");
 
 // Top-level type aliases
 const Event = types.Event;
@@ -32,6 +33,10 @@ fn handlePanic(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) 
     };
 }
 
+/// Creates a Sentry event and tries to capture all stackframes that lead to it.
+///
+/// Frame information is only extracted from the binary itself.
+/// If it fails to extract frame information, it will create an event with little to no frames.
 fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?usize) Event {
     var frames_list = std.ArrayList(Frame).init(allocator);
 
@@ -41,7 +46,6 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
     const project_root = getProjectRoot(allocator);
     defer if (project_root) |root| allocator.free(root);
 
-    // Optionally include the first address as its own frame to ensure the current function is captured
     if (first_trace_addr) |addr| {
         var first_frame = Frame{
             .instruction_addr = std.fmt.allocPrint(allocator, "0x{x}", .{addr}) catch null,
@@ -49,11 +53,9 @@ fn createSentryEvent(allocator: Allocator, msg: []const u8, first_trace_addr: ?u
         if (debug_info) |di| {
             extractSymbolInfoWithCategorization(allocator, di, addr, &first_frame, project_root);
         } else {
-            // No debug info available, categorize based on limited information
             categorizeFrame(&first_frame, project_root);
         }
 
-        // Only add frame if it's valid and not a panic handler infrastructure frame
         if (isValidFrame(&first_frame) and !isPanicHandlerFrame(first_frame.filename, first_frame.function)) {
             frames_list.append(first_frame) catch |err| {
                 first_frame.deinit(allocator);
@@ -275,36 +277,10 @@ fn parseSymbolLineSentry(allocator: Allocator, line: []const u8, frame: *Frame) 
 }
 
 fn getProjectRoot(allocator: Allocator) ?[]const u8 {
-    if (std.process.getEnvVarOwned(allocator, "SENTRY_PROJECT_ROOT")) |root| {
-        return root;
-    } else |_| {}
-
-    return inferProjectRootFromEmbeddedDebugInfo(allocator);
-}
-
-fn inferProjectRootFromEmbeddedDebugInfo(allocator: Allocator) ?[]const u8 {
-    const source_file = @src().file;
-
-    if (std.mem.lastIndexOf(u8, source_file, "/src/")) |src_idx| {
-        // Found "/src/" in embedded path, project root is everything before it
-        const project_root = source_file[0..src_idx];
-        return allocator.dupe(u8, project_root) catch null;
+    // Build-time injected project root is the sole source of truth
+    if (sentry_build.sentry_project_root.len != 0) {
+        return allocator.dupe(u8, sentry_build.sentry_project_root) catch null;
     }
-
-    // Fallback: try to find other common patterns in embedded debug paths
-    const patterns = [_][]const u8{ "/examples/", "/lib/", "/source/" };
-    for (patterns) |pattern| {
-        if (std.mem.lastIndexOf(u8, source_file, pattern)) |idx| {
-            const project_root = source_file[0..idx];
-            return allocator.dupe(u8, project_root) catch null;
-        }
-    }
-
-    // Last resort: use the directory from embedded debug path (string manipulation only)
-    if (std.fs.path.dirname(source_file)) |dir| {
-        return allocator.dupe(u8, dir) catch null;
-    }
-
     return null;
 }
 
@@ -342,10 +318,7 @@ fn isValidFrame(frame: *const Frame) bool {
 fn isPanicHandlerFrame(filename: ?[]const u8, function: ?[]const u8) bool {
     if (filename) |file| {
         // If it's from panic_handler.zig, check if it's an internal function
-        if (std.mem.endsWith(u8, file, "panic_handler.zig") or
-            std.mem.indexOf(u8, file, "/panic_handler.zig") != null or
-            std.mem.indexOf(u8, file, "\\panic_handler.zig") != null)
-        {
+        if (std.mem.indexOf(u8, file, "panic_handler.zig") != null) {
 
             // Only filter out if it's clearly an infrastructure function
             if (function) |func| {
@@ -361,46 +334,31 @@ fn isPanicHandlerFrame(filename: ?[]const u8, function: ?[]const u8) bool {
     return false;
 }
 
-/// Check if a frame belongs to system/standard library code
+/// Best effort to determine if a frame belongs to system/standard library code.
+///
+/// It will check if the stacktrace is from common places of the standard library.
+/// If it's in a non standard library place, it may produce false positives.
 fn isSystemFrame(filename: ?[]const u8, function: ?[]const u8) bool {
+    _ = function; // unused in build-root classification
     if (filename) |file| {
-        // Zig standard library
-        if (std.mem.indexOf(u8, file, "/lib/zig/std/") != null) return true;
-        if (std.mem.indexOf(u8, file, "\\lib\\zig\\std\\") != null) return true;
-
-        // System libraries (Unix)
-        if (std.mem.indexOf(u8, file, "/usr/lib/") != null) return true;
-        if (std.mem.indexOf(u8, file, "/lib/") != null) return true;
-        if (std.mem.indexOf(u8, file, "/lib64/") != null) return true;
-
-        // System libraries (Windows)
-        if (std.mem.indexOf(u8, file, "\\Windows\\System32\\") != null) return true;
-        if (std.mem.indexOf(u8, file, "\\Windows\\SysWOW64\\") != null) return true;
-
-        // Common system files
-        if (std.mem.endsWith(u8, file, "libc.so") or std.mem.endsWith(u8, file, "libc.dylib")) return true;
-        if (std.mem.endsWith(u8, file, "kernel32.dll") or std.mem.endsWith(u8, file, "ntdll.dll")) return true;
-        if (std.mem.endsWith(u8, file, "libpthread.so") or std.mem.endsWith(u8, file, "libm.so")) return true;
-    }
-
-    if (function) |func| {
-        // Known system function patterns
-        const system_prefixes = [_][]const u8{ "__", "_start", "main.", "std.", "builtin.", "kernel32.", "ntdll.", "libc.", "pthread_" };
-
-        for (system_prefixes) |prefix| {
-            if (std.mem.startsWith(u8, func, prefix)) return true;
+        const root = sentry_build.sentry_project_root;
+        if (root.len > 0) {
+            if (std.mem.startsWith(u8, file, root)) return false; // in-app
+            return true; // outside app root => treat as system/library
         }
     }
-
-    return false;
+    // Without a build root, conservatively treat as system
+    return true;
 }
 
-/// Check if a frame belongs to application code
-/// BINARY-ONLY: Uses embedded debug path analysis - works even when debug paths don't match runtime environment
+/// Best effort to determine if a frame belongs to application code.
+///
+/// This is a heuristic based on the filename and function name.
+/// It is not perfect and may result in false positives.
+///
+/// The project_root is used to determine if the frame is in the project.
+/// If it is not in the project, it is not application code.
 fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root: ?[]const u8) bool {
-    // If it's a system frame, it's definitely not application code
-    if (isSystemFrame(filename, function)) return false;
-
     // Reject unknown/corrupted frames with "???" values
     if (filename) |file| {
         if (std.mem.eql(u8, file, "???")) return false;
@@ -409,101 +367,12 @@ fn isApplicationFrame(filename: ?[]const u8, function: ?[]const u8, project_root
         if (std.mem.eql(u8, func, "???")) return false;
     }
 
+    // Build-root based classification only
     if (project_root) |root| {
         if (filename) |file| {
-            // Direct prefix match (exact path)
-            if (std.mem.startsWith(u8, file, root)) {
-                return true;
-            }
-
-            // Pattern match (useful when runtime path differs from build path)
-            if (isFileInProjectPattern(file, root)) {
-                return true;
-            }
-
-            // Handle relative paths - check if it looks like project code
-            if (std.mem.indexOf(u8, file, "src/") != null or
-                std.mem.indexOf(u8, file, "src\\") != null)
-            {
-                return true;
-            }
+            if (std.mem.startsWith(u8, file, root)) return true;
         }
-    }
-
-    // Enhanced heuristics for Docker/static binary scenarios
-    if (filename) |file| {
-        // Look for common application patterns
-        if (std.mem.indexOf(u8, file, "/src/") != null or
-            std.mem.indexOf(u8, file, "/examples/") != null or
-            std.mem.indexOf(u8, file, "/app/") != null or
-            std.mem.indexOf(u8, file, "/source/") != null or
-            std.mem.indexOf(u8, file, "src\\") != null or
-            std.mem.indexOf(u8, file, "examples\\") != null)
-        {
-            // But exclude if it's clearly system code
-            if (std.mem.indexOf(u8, file, "/lib/zig/") == null and
-                std.mem.indexOf(u8, file, "\\lib\\zig\\") == null)
-            {
-                return true;
-            }
-        }
-
-        // Check for Zig source files that don't look like system files
-        if (std.mem.endsWith(u8, file, ".zig")) {
-            // Additional check: make sure it doesn't look like a test or build file
-            if (std.mem.indexOf(u8, file, "/test/") == null and
-                std.mem.indexOf(u8, file, "build.zig") == null and
-                std.mem.indexOf(u8, file, "/lib/zig/") == null and
-                std.mem.indexOf(u8, file, "\\lib\\zig\\") == null)
-            {
-                return true;
-            }
-        }
-    }
-
-    if (function) |func| {
-        // Application functions typically don't have system prefixes
-        if (!std.mem.startsWith(u8, func, "__") and
-            !std.mem.startsWith(u8, func, "_start") and
-            !std.mem.startsWith(u8, func, "std.") and
-            !std.mem.startsWith(u8, func, "builtin."))
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-/// Check if a file path matches project patterns, even when paths don't exactly align
-/// BINARY-ONLY: Pure string matching on embedded debug paths - no filesystem access
-/// Useful for Docker containers where compile-time paths differ from runtime paths
-fn isFileInProjectPattern(filename: []const u8, project_root: []const u8) bool {
-    // Extract the project name from both Unix and Windows style paths manually
-    // since std.fs.path.basename doesn't handle cross-platform paths correctly
-    var project_name: []const u8 = project_root;
-
-    // Find the last slash (either / or \)
-    if (std.mem.lastIndexOfScalar(u8, project_root, '/')) |idx| {
-        project_name = project_root[idx + 1 ..];
-    } else if (std.mem.lastIndexOfScalar(u8, project_root, '\\')) |idx| {
-        project_name = project_root[idx + 1 ..];
-    }
-
-    // Look for the project name anywhere in the file path
-    if (std.mem.indexOf(u8, filename, project_name) != null) {
-        // Additional validation: make sure it's followed by typical source patterns
-        const has_source_pattern =
-            std.mem.indexOf(u8, filename, "/src/") != null or
-            std.mem.indexOf(u8, filename, "/examples/") != null or
-            std.mem.indexOf(u8, filename, "/lib/") != null or
-            std.mem.indexOf(u8, filename, "\\src\\") != null or
-            std.mem.indexOf(u8, filename, "\\examples\\") != null or
-            std.mem.indexOf(u8, filename, "\\lib\\") != null;
-
-        if (has_source_pattern) {
-            return true;
-        }
+        // Optional: if abs_path exists, could check it here as well
     }
 
     return false;
@@ -746,24 +615,15 @@ test "frame detection: isValidFrame correctly validates frames" {
     try std.testing.expect(!isValidFrame(&frame_null_ptr));
 }
 
-test "frame detection: isSystemFrame correctly identifies system frames" {
-    // Zig standard library
-    try std.testing.expect(isSystemFrame("/lib/zig/std/debug.zig", null));
-    try std.testing.expect(isSystemFrame("\\lib\\zig\\std\\debug.zig", null));
+test "frame detection: isSystemFrame derived from build project root" {
+    const root = sentry_build.sentry_project_root;
+    if (root.len == 0) return error.SkipZigTest;
 
-    // System libraries
+    const in_app = std.fmt.allocPrint(std.testing.allocator, "{s}/src/main.zig", .{root}) catch return error.SkipZigTest;
+    defer std.testing.allocator.free(in_app);
+
+    try std.testing.expect(!isSystemFrame(in_app, null));
     try std.testing.expect(isSystemFrame("/usr/lib/libc.so", null));
-    try std.testing.expect(isSystemFrame("/lib/libpthread.so", null));
-    try std.testing.expect(isSystemFrame("\\Windows\\System32\\kernel32.dll", null));
-
-    // System functions
-    try std.testing.expect(isSystemFrame(null, "__libc_start_main"));
-    try std.testing.expect(isSystemFrame(null, "std.debug.print"));
-    try std.testing.expect(isSystemFrame(null, "builtin.panic"));
-
-    // Not system
-    try std.testing.expect(!isSystemFrame("src/main.zig", null));
-    try std.testing.expect(!isSystemFrame(null, "myFunction"));
 }
 
 test "frame detection: isPanicHandlerFrame correctly identifies panic handler frames" {
@@ -785,13 +645,13 @@ test "frame detection: isPanicHandlerFrame correctly identifies panic handler fr
     try std.testing.expect(!isPanicHandlerFrame("panic_handler.zig", "userFunction")); // user function in panic handler file
 }
 
-test "frame detection: isApplicationFrame correctly identifies app frames" {
+test "frame detection: isApplicationFrame correctly identifies app frames (build-root only)" {
     const project_root = "/home/user/myproject";
 
     // Application frames
     try std.testing.expect(isApplicationFrame("/home/user/myproject/src/main.zig", null, project_root));
-    try std.testing.expect(isApplicationFrame("src/main.zig", null, null));
-    try std.testing.expect(isApplicationFrame("src/lib.zig", "myFunction", null));
+    try std.testing.expect(!isApplicationFrame("src/main.zig", null, null));
+    try std.testing.expect(!isApplicationFrame("src/lib.zig", "myFunction", null));
 
     // Not application frames (system)
     try std.testing.expect(!isApplicationFrame("/lib/zig/std/debug.zig", null, project_root));
@@ -911,7 +771,7 @@ test "frame detection: end-to-end categorization in panic handler" {
     try std.testing.expect(found_non_null_in_app);
 }
 
-test "frame detection: Binary-only Docker/static binary scenarios" {
+test "frame detection: build-root classification only (no fuzzy patterns)" {
     const allocator = std.testing.allocator;
 
     // Simulate compile-time project root from embedded debug info (no filesystem access)
@@ -961,42 +821,8 @@ test "frame detection: Binary-only Docker/static binary scenarios" {
     categorizeFrame(&docker_lib_frame, build_time_root);
     try std.testing.expectEqual(false, docker_lib_frame.in_app);
 
-    // Reset frames for pattern-based testing
+    // With build-root-only logic, a different runtime root yields false
     docker_app_frame.in_app = null;
-    docker_example_frame.in_app = null;
-    docker_lib_frame.in_app = null;
-
-    // Test with different runtime root (simulating Docker where paths don't match)
-    const runtime_root = "/app"; // Different from build-time root
-
-    // Should still detect as app frames using pattern matching
-    categorizeFrame(&docker_app_frame, runtime_root);
-    try std.testing.expectEqual(true, docker_app_frame.in_app); // Should work via pattern matching
-
-    categorizeFrame(&docker_example_frame, runtime_root);
-    try std.testing.expectEqual(true, docker_example_frame.in_app); // Should work via pattern matching
-
-    categorizeFrame(&docker_lib_frame, runtime_root);
-    try std.testing.expectEqual(false, docker_lib_frame.in_app); // System frame regardless
-}
-
-test "isFileInProjectPattern matches project names correctly" {
-    const allocator = std.testing.allocator;
-
-    // Test exact project name matching
-    try std.testing.expectEqual(true, isFileInProjectPattern("/build/my-app/src/main.zig", "/workspace/my-app"));
-    try std.testing.expectEqual(true, isFileInProjectPattern("/different/path/my-app/examples/test.zig", "/original/my-app"));
-
-    // Test with common source patterns
-    try std.testing.expectEqual(true, isFileInProjectPattern("/build/sentry-zig/src/client.zig", "/workspace/sentry-zig"));
-    try std.testing.expectEqual(true, isFileInProjectPattern("C:\\build\\sentry-zig\\examples\\demo.zig", "D:\\workspace\\sentry-zig"));
-
-    // Test rejection of non-matching patterns
-    try std.testing.expectEqual(false, isFileInProjectPattern("/usr/lib/zig/std/log.zig", "/workspace/my-app"));
-    try std.testing.expectEqual(false, isFileInProjectPattern("/other-project/src/main.zig", "/workspace/my-app"));
-
-    // Test edge cases
-    try std.testing.expectEqual(false, isFileInProjectPattern("/workspace/my-app-test/build.zig", "/workspace/my-app")); // Partial match but not in src/
-
-    _ = allocator; // Suppress unused variable warning
+    categorizeFrame(&docker_app_frame, "/app");
+    try std.testing.expectEqual(false, docker_app_frame.in_app);
 }
