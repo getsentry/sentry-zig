@@ -4,7 +4,7 @@ const sentry = @import("sentry_zig");
 // Set up the panic handler to use Sentry's panic handler
 pub const panic = std.debug.FullPanic(sentry.panicHandler);
 
-pub fn main() noreturn {
+pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     // Initialize Sentry client
