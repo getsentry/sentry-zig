@@ -68,4 +68,7 @@ run-capture-message: ## Run the capture message example
 run-capture-error: ## Run the capture error example
 	@zig build capture_error $(ZIG_BUILD_OPTS)
 
+run-tracing: ## Run the capture error example
+	@zig build tracing $(ZIG_BUILD_OPTS)
+
 all: clean format check build test ## Run complete build pipeline

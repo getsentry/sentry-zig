@@ -1,24 +1,27 @@
 const std = @import("std");
+const types = @import("types");
+const scopes = @import("scope.zig");
+const tracing = @import("tracing.zig");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const types = @import("types");
 pub const Event = types.Event;
 pub const EventId = types.EventId;
 pub const SentryOptions = types.SentryOptions;
 pub const Breadcrumb = types.Breadcrumb;
 pub const Dsn = types.Dsn;
 pub const Level = types.Level;
-pub const StackTrace = types.StackTrace;
 pub const Exception = types.Exception;
+pub const TraceId = types.TraceId;
+pub const SpanId = types.SpanId;
+pub const PropagationContext = types.PropagationContext;
+pub const TraceContext = types.TraceContext;
+pub const Span = types.Span;
+pub const StackTrace = types.StackTrace;
 pub const Frame = types.Frame;
-
-pub const SentryClient = @import("client.zig").SentryClient;
-
-const scopes = @import("scope.zig");
 pub const ScopeType = scopes.ScopeType;
-pub const addBreadcrumb = scopes.addBreadcrumb;
-pub const deinitScopeManager = scopes.deinitScopeManager;
 
+pub const deinitScopeManager = scopes.deinitScopeManager;
+pub const SentryClient = @import("client.zig").SentryClient;
 pub const panicHandler = @import("panic_handler.zig").panicHandler;
 pub const stack_trace = @import("utils/stack_trace.zig");
 
@@ -53,6 +56,17 @@ pub fn captureError(err: anyerror) !?EventId {
     errdefer event.deinit();
     return captureEvent(event);
 }
+
+pub const startTransaction = tracing.startTransaction;
+pub const continueFromHeaders = tracing.continueFromHeaders;
+pub const finishTransaction = tracing.finishTransaction;
+pub const startSpan = tracing.startSpan;
+pub const getCurrentSpan = tracing.getCurrentSpan;
+pub const getCurrentTransaction = tracing.getCurrentTransaction;
+pub const getSentryTrace = tracing.getSentryTrace;
+
+// Trace context management (equivalent to sentry_set_trace in Native SDK)
+pub const setTrace = scopes.setTrace;
 
 test "compile and test everything" {
     _ = @import("panic_handler.zig");
