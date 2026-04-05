@@ -118,6 +118,7 @@ pub const SentryClient = struct {
             .items = buf[0..],
         };
 
+        std.debug.print("Sending envelope", .{});
         _ = try self.transport.send(envelope);
 
         return prepared_event.event_id.value;

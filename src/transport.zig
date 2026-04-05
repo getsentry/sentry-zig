@@ -41,6 +41,7 @@ pub const HttpTransport = struct {
     }
 
     pub fn send(self: *HttpTransport, envelope: SentryEnvelope) !TransportResult {
+        std.debug.print("sending envelope", .{});
         const payload = try self.envelopeToPayload(envelope);
         defer self.allocator.free(payload);
 
@@ -48,12 +49,14 @@ pub const HttpTransport = struct {
         const dsn = self.options.dsn orelse {
             return TransportResult{ .response_code = 0 };
         };
+        std.debug.print("dsn: {any}", .{dsn});
 
         // Construct the Sentry envelope endpoint URL
         const netloc = dsn.getNetloc(self.allocator) catch {
             return TransportResult{ .response_code = 0 };
         };
         defer self.allocator.free(netloc);
+        std.debug.print("netloc: {s}", .{netloc});
 
         const endpoint_url = std.fmt.allocPrint(self.allocator, "{s}://{s}/api/{s}/envelope/", .{
             dsn.scheme,
@@ -63,11 +66,13 @@ pub const HttpTransport = struct {
             return TransportResult{ .response_code = 0 };
         };
         defer self.allocator.free(endpoint_url);
+        std.debug.print("endpoint_url: {s}", .{endpoint_url});
 
         // Parse the URL and make the HTTP request
         const uri = std.Uri.parse(endpoint_url) catch {
             return TransportResult{ .response_code = 0 };
         };
+        std.debug.print("uri: {any}", .{uri});
 
         // Construct the auth header
         const auth_header = std.fmt.allocPrint(self.allocator, "Sentry sentry_version=7,sentry_key={s},sentry_client=sentry-zig/0.1.0", .{
@@ -76,12 +81,14 @@ pub const HttpTransport = struct {
             return TransportResult{ .response_code = 0 };
         };
         defer self.allocator.free(auth_header);
+        std.debug.print("auth_header: {s}", .{auth_header});
 
         // Create Content-Length header value
         const content_length = std.fmt.allocPrint(self.allocator, "{d}", .{payload.len}) catch {
             return TransportResult{ .response_code = 0 };
         };
         defer self.allocator.free(content_length);
+        std.debug.print("content_length: {s}", .{content_length});
 
         const headers = [_]std.http.Header{
             .{ .name = "Content-Type", .value = "application/x-sentry-envelope" },
@@ -135,9 +142,12 @@ pub const HttpTransport = struct {
         var list = std.ArrayList(u8).init(self.allocator);
         errdefer list.deinit();
 
+        std.debug.print("stringifying event", .{});
+
         try std.json.stringify(event, .{}, list.writer());
 
         const data = try list.toOwnedSlice();
+        std.debug.print("Creating envelope item", .{});
         return SentryEnvelopeItem{
             .header = .{
                 .type = .event,
